@@ -1,3 +1,4 @@
+from typing import Any
 import psycopg2
 import psycopg2.extensions
 from psycopg2.pool import ThreadedConnectionPool
@@ -15,8 +16,19 @@ class ColumnType:
 
 class Row:
     table_name:str
-    name = psycopg2.extensions.Column()
-    
+    name = psycopg2.extensions.Column
+
+class Column:
+    display_size: Any
+    internal_size: Any
+    name: Any
+    null_ok: Any
+    precision: Any
+    scale: Any
+    table_column: Any
+    table_oid: Any
+    type_code: Any
+
     
 # class __BaseConnector:
 #     def __init__(self):
