@@ -7,29 +7,126 @@ from psycopg2.pool import ThreadedConnectionPool
 # from psycopg2.extensions import make_dsn
 # from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from contextlib import contextmanager
-
 from threadingpg import functions
-from . import datatypes
+from threadingpg import condition
+from threadingpg import pgclass
+import inspect
 
-class ColumnType:
-    datatypes.bigint
-
-class Row:
-    table_name:str
-    name = psycopg2.extensions.Column
-
-class Column:
-    display_size: Any
-    internal_size: Any
-    name: Any
-    null_ok: Any
-    precision: Any
-    scale: Any
-    table_column: Any
-    table_oid: Any
-    type_code: Any
 
     
+
+
+
+
+class Connector():
+    def __init__(self, dbname:str, user:str, password:str, port:int, host:str="localhost") -> None:
+        self.dsn = psycopg2.extensions.make_dsn(host=host, dbname=dbname, user=user, password=password, port=port)
+        self.__pool = ThreadedConnectionPool(1, 5, self.dsn)
+    
+    def close(self):
+        if self.__pool is not None and self.__pool.closed is False:
+            self.__pool.closeall()
+
+    @contextmanager
+    def get(self):
+        conn:psycopg2.extensions.connection = self.__pool.getconn()
+        conn.autocommit = True
+        cursor = conn.cursor()
+        try:
+            yield cursor, conn
+        finally:
+            cursor.close()
+            self.__pool.putconn(conn)
+            
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    # Table
+    def create_table(self, table:pgclass.Table):
+        try:
+            col_dict = {}
+            for d in table.__dict__:
+                val = table.__dict__[d]
+                if isinstance(val, pgclass.Column):
+                    if val.column_name:
+                        col_dict[val.column_name] = val.data_type
+                    else:
+                        col_dict[d] = val.data_type
+                        
+            query = functions.get_query_create_table(table.table_name, col_dict)
+            with self.get() as (_cursor, _):
+                _cursor.execute(query)
+        except Exception as e:
+            print(f"[{e.__class__.__name__}] create_table : {e}")
+    
+    def drop_table(self, table:pgclass.Table):
+        try:
+            query = functions.get_query_drop_table(table.table_name)
+            with self.get() as (_cursor, _):
+                _cursor.execute(query)
+        except Exception as e:
+            print(f"[{e.__class__.__name__}] drop_table : {e}")
+    
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    # Row
+    def select(self, table: pgclass.Table, where:condition.Condition=None, order_by_query:str=None, limit_count:int = None) -> [pgclass.Row]:
+        rows = []
+        where_str = where.parse() if where else None
+        query = functions.get_query_select(table.table_name, condition_query=where_str, order_by_query=order_by_query, limit_count=limit_count)
+        
+        var_name_by_column_name = {}
+        for var_name in table.__dict__:
+            variable = table.__dict__[var_name]
+            if isinstance(variable, pgclass.Column):
+                var_name_by_column_name[variable.column_name] = var_name
+        
+        columns:list[pgclass.Column] = []
+        with self.get() as (_cursor, _):
+            _cursor.execute(query)
+            rows = _cursor.fetchall()
+            for desc in _cursor.description:
+                _cursor.execute(f"select {desc.type_code}::regtype::text")
+                type_name = _cursor.fetchone()
+                columns.append(pgclass.Column(data_type=type_name, column_name=desc.name))
+        
+        results = []
+        for row in rows:
+            row_data = pgclass.Row()
+            for index, col in enumerate(columns):
+                setattr(row_data, var_name_by_column_name[col.column_name], row[index])
+            results.append(row_data)
+        return results
+        
+    def insert(self, table: pgclass.Table, row:pgclass.Row):
+        variables_dict = {}
+        for d in dir(table):
+            col = getattr(table, d)
+            if isinstance(col, pgclass.Column):
+                if row.__dict__[d]:
+                    variables_dict[col.column_name] = row.__dict__[d]
+        query = functions.get_query_insert(table.table_name, variables_dict)
+        with self.get() as (_cursor, _):
+            _cursor.execute(query)
+    
+    def update(self, table: pgclass.Table, row:pgclass.Row, where:condition.Condition):
+        variables_dict = {}
+        for d in dir(table):
+            col = getattr(table, d)
+            if isinstance(col, pgclass.Column):
+                if row.__dict__[d]:
+                    variables_dict[col.column_name] = row.__dict__[d]
+        query = functions.get_query_update(table.table_name, variables_dict, where.parse())
+        with self.get() as (_cursor, _):
+            _cursor.execute(query)
+
 # class __BaseConnector:
 #     def __init__(self):
 #         self.listening_thread = None
