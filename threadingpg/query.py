@@ -1,4 +1,4 @@
-def get_query_select(table_name:str, condition_query:str=None, order_by_query:str=None, limit_count:int=None) -> str:
+def select(table_name:str, condition_query:str=None, order_by_query:str=None, limit_count:int=None) -> str:
     query = f"SELECT * FROM {table_name}"
     
     if condition_query is not None and condition_query != "":
@@ -13,18 +13,24 @@ def get_query_select(table_name:str, condition_query:str=None, order_by_query:st
     query += ";"
     return query
 
-def get_query_insert(table_name:str, variables_dict:dict) -> str:
+def insert(table_name:str, value_by_column_name_dict:dict) -> str:
+    '''
+    Parameters
+    -
+    table_name(str): table name
+    variables_dict(dict): key is column name, value is value
+    '''
     column_names = ''
     values = ''
-    for column_name in variables_dict.keys():
-        if variables_dict[column_name] is not None:
+    for column_name in value_by_column_name_dict.keys():
+        if value_by_column_name_dict[column_name] is not None:
             column_names += f"{column_name},"
-            values += f"{convert_value_to_query(variables_dict[column_name])},"
+            values += f"{convert_value_to_query(value_by_column_name_dict[column_name])},"
         
     query = f"INSERT INTO {table_name} ({column_names[:-1]}) VALUES ({values[:-1]});"
     return query
 
-def get_query_update(table_name:str, variables_dict:dict, condition_query:str):
+def update(table_name:str, variables_dict:dict, condition_query:str):
     update_query = ''
     for column_name in variables_dict.keys():
         if column_name in variables_dict:
@@ -66,26 +72,32 @@ def convert_value_to_query(value, is_in_list = False) -> str:
     return value_query[:-1]
 
 
-def get_query_create_table(table_name:str, column_name_type_dict:dict) -> str:
+def create_table(table_name:str, data_type_by_column_name_dict:dict) -> str:
+    '''
+    Parameters
+    -
+    table_name(str): table name
+    variables_dict(dict): key is column name, value is datatype
+    '''
     res = ''
-    for column_name in column_name_type_dict:
-        res += f"{column_name} {column_name_type_dict[column_name]},"
+    for column_name in data_type_by_column_name_dict:
+        res += f"{column_name} {data_type_by_column_name_dict[column_name]},"
     query = f"CREATE TABLE {table_name} ({res[:-1]})"
     return query
 
-def get_query_drop_table(table_name:str) -> str:
+def drop_table(table_name:str) -> str:
     return f"DROP TABLE {table_name}"
     
-def get_query_is_exist_table(table_name:str, table_schema = 'public') -> str:
+def is_exist_table(table_name:str, table_schema = 'public') -> str:
     return f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '{table_schema}' AND table_name = '{table_name}');"
 
-def get_query_is_exist_column(table_name:str, column_name:str, table_schema='public'):
+def is_exist_column(table_name:str, column_name:str, table_schema='public'):
     return f"SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}' AND column_name = '{column_name}')"
 
-def get_query_column_names(table_name:str, table_schema='public'):
+def column_names(table_name:str, table_schema='public'):
     return f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
 
-def get_query_is_exist_row(table_name:str, condition_query:str):
+def is_exist_row(table_name:str, condition_query:str):
     return f"SELECT EXISTS (SELECT FROM {table_name} WHERE {condition_query} LIMIT 1);"
 
 
@@ -100,7 +112,7 @@ def get_query_is_exist_row(table_name:str, condition_query:str):
 
 
 
-def get_query_notify_function(function_name:str, channel_name:str, notify_data_type:str):
+def notify_function(function_name:str, channel_name:str, notify_data_type:str):
     '''
     notify_data_type:\n
     table_name\n
@@ -173,19 +185,19 @@ def get_query_notify_function(function_name:str, channel_name:str, notify_data_t
     # payload := json_build_object('timestamp',CURRENT_TIMESTAMP,'action',LOWER(TG_OP),'schema',TG_TABLE_SCHEMA,'identity',TG_TABLE_NAME,'record',row_to_json(rec), 'old',row_to_json(dat));
     return query
 
-def get_query_drop_function(function_name:str):
+def drop_function(function_name:str):
     return f'DROP FUNCTION {function_name}();'
         
-def get_query_create_trigger(trigger_name:str, table_name:str, function_name:str):
+def create_trigger(trigger_name:str, table_name:str, function_name:str):
     return f"CREATE TRIGGER {trigger_name} AFTER INSERT OR UPDATE ON {table_name} FOR EACH ROW EXECUTE PROCEDURE {function_name}();"
     
-def get_query_drop_trigger(trigger_name:str, table_name:str):
+def drop_trigger(trigger_name:str, table_name:str):
     return f"DROP TRIGGER {trigger_name} on {table_name};"
         
-def get_query_listen_channel(channel_name:str):
+def listen_channel(channel_name:str):
     return f"LISTEN {channel_name};"
 
-def get_query_unlisten_channel(channel_name:str):
+def unlisten_channel(channel_name:str):
     return f"UNLISTEN {channel_name};"
 
 

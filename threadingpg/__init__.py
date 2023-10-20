@@ -7,15 +7,10 @@ from psycopg2.pool import ThreadedConnectionPool
 # from psycopg2.extensions import make_dsn
 # from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from contextlib import contextmanager
-from threadingpg import functions
+from threadingpg import query
 from threadingpg import condition
-from threadingpg import pgclass
+from threadingpg import data
 import inspect
-
-
-    
-
-
 
 
 class Connector():
@@ -45,28 +40,28 @@ class Connector():
     ################################################################################################################
     ################################################################################################################
     # Table
-    def create_table(self, table:pgclass.Table):
+    def create_table(self, table:data.Table):
         try:
             col_dict = {}
             for d in table.__dict__:
                 val = table.__dict__[d]
-                if isinstance(val, pgclass.Column):
+                if isinstance(val, data.Column):
                     if val.column_name:
                         col_dict[val.column_name] = val.data_type
                     else:
                         col_dict[d] = val.data_type
                         
-            query = functions.get_query_create_table(table.table_name, col_dict)
+            q = query.create_table(table.table_name, col_dict)
             with self.get() as (_cursor, _):
-                _cursor.execute(query)
+                _cursor.execute(q)
         except Exception as e:
             print(f"[{e.__class__.__name__}] create_table : {e}")
     
-    def drop_table(self, table:pgclass.Table):
+    def drop_table(self, table:data.Table):
         try:
-            query = functions.get_query_drop_table(table.table_name)
+            q = query.drop_table(table.table_name)
             with self.get() as (_cursor, _):
-                _cursor.execute(query)
+                _cursor.execute(q)
         except Exception as e:
             print(f"[{e.__class__.__name__}] drop_table : {e}")
     
@@ -77,55 +72,56 @@ class Connector():
     ################################################################################################################
     ################################################################################################################
     # Row
-    def select(self, table: pgclass.Table, where:condition.Condition=None, order_by_query:str=None, limit_count:int = None) -> [pgclass.Row]:
+    def select(self, table: data.Table, where:condition.Condition=None, order_by:condition.Condition=None, limit_count:int = None) -> [data.Row]:
         rows = []
         where_str = where.parse() if where else None
-        query = functions.get_query_select(table.table_name, condition_query=where_str, order_by_query=order_by_query, limit_count=limit_count)
+        order_by_str = order_by.parse() if order_by else None
+        q = query.select(table.table_name, condition_query=where_str, order_by_query=order_by_str, limit_count=limit_count)
         
         var_name_by_column_name = {}
         for var_name in table.__dict__:
             variable = table.__dict__[var_name]
-            if isinstance(variable, pgclass.Column):
+            if isinstance(variable, data.Column):
                 var_name_by_column_name[variable.column_name] = var_name
         
-        columns:list[pgclass.Column] = []
+        columns:list[data.Column] = []
         with self.get() as (_cursor, _):
-            _cursor.execute(query)
+            _cursor.execute(q)
             rows = _cursor.fetchall()
             for desc in _cursor.description:
                 _cursor.execute(f"select {desc.type_code}::regtype::text")
                 type_name = _cursor.fetchone()
-                columns.append(pgclass.Column(data_type=type_name, column_name=desc.name))
+                columns.append(data.Column(data_type=type_name, column_name=desc.name))
         
         results = []
-        for row in rows:
-            row_data = pgclass.Row()
+        for index, row in enumerate(rows):
+            row_data = data.Row(index)
             for index, col in enumerate(columns):
                 setattr(row_data, var_name_by_column_name[col.column_name], row[index])
             results.append(row_data)
         return results
         
-    def insert(self, table: pgclass.Table, row:pgclass.Row):
+    def insert(self, table: data.Table, row: data.Row):
         variables_dict = {}
         for d in dir(table):
             col = getattr(table, d)
-            if isinstance(col, pgclass.Column):
+            if isinstance(col, data.Column):
                 if row.__dict__[d]:
                     variables_dict[col.column_name] = row.__dict__[d]
-        query = functions.get_query_insert(table.table_name, variables_dict)
+        q = query.insert(table.table_name, variables_dict)
         with self.get() as (_cursor, _):
-            _cursor.execute(query)
+            _cursor.execute(q)
     
-    def update(self, table: pgclass.Table, row:pgclass.Row, where:condition.Condition):
+    def update(self, table: data.Table, row:data.Row, where:condition.Condition):
         variables_dict = {}
         for d in dir(table):
             col = getattr(table, d)
-            if isinstance(col, pgclass.Column):
+            if isinstance(col, data.Column):
                 if row.__dict__[d]:
                     variables_dict[col.column_name] = row.__dict__[d]
-        query = functions.get_query_update(table.table_name, variables_dict, where.parse())
+        q = query.update(table.table_name, variables_dict, where.parse())
         with self.get() as (_cursor, _):
-            _cursor.execute(query)
+            _cursor.execute(q)
 
 # class __BaseConnector:
 #     def __init__(self):
@@ -176,10 +172,10 @@ class Connector():
     
 #     def get_rows(self, table_info:BaseTableInfo, condition_query:str=None, order_by_query:str=None, limit_count:int = None) -> list[BaseRowData]:
 #         rows = []
-#         query = functions.get_query_select(table_info.table_name, condition_query=condition_query, order_by_query=order_by_query, limit_count=limit_count)
+#         q = functions.select(table_info.table_name, condition_query=condition_query, order_by_query=order_by_query, limit_count=limit_count)
         
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
 #             rows = _cursor.fetchall()
 #         results = []
 #         for row in rows:
@@ -197,64 +193,64 @@ class Connector():
 #         for col in table_info.column_list:
 #             if col.name in insert_row_data.__dict__:
 #                 valriables_dict[col.name] = insert_row_data.__dict__[col.name]
-#         query = functions.get_query_insert(table_info.table_name, valriables_dict)
+#         q = functions.insert(table_info.table_name, valriables_dict)
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
             
 #     def update(self, table_info:BaseTableInfo, insert_row_data:BaseRowData, condition_query:str):
 #         valriables_dict = {}
 #         for col in table_info.column_list:
 #             if col.name in insert_row_data.__dict__:
 #                 valriables_dict[col.name] = insert_row_data.__dict__[col.name]        
-#         query = functions.get_query_update(table_info.table_name, valriables_dict, condition_query)
+#         q = functions.update(table_info.table_name, valriables_dict, condition_query)
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
             
 #     def create_table(self, table_info:BaseTableInfo):
 #         valriables_dict = {}
 #         for col in table_info.column_list:
 #             valriables_dict[col.name] = col.value_type
             
-#         query = functions.get_query_create_table(table_info.table_name, valriables_dict)
+#         q = functions.create_table(table_info.table_name, valriables_dict)
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
             
 #     def drop_table(self, table_name:str):
-#         query = functions.get_query_drop_table(table_name)
+#         q = functions.drop_table(table_name)
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
             
 #     def is_exist_table(self, table_name:str, table_schema = 'public') -> bool:
 #         result = False
-#         query = functions.get_query_is_exist_table(table_name, table_schema)
+#         q = functions.is_exist_table(table_name, table_schema)
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
 #             result_fetch = _cursor.fetchone()
 #             result = result_fetch[0]
 #         return result
         
 #     def is_exist_column(self, table_name:str, column_name:str, table_schema='public') -> bool:
 #         result = False
-#         query = functions.get_query_is_exist_column(table_name, column_name, table_schema)
+#         q = functions.is_exist_column(table_name, column_name, table_schema)
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
 #             result_fetch = _cursor.fetchone()
 #             result = result_fetch[0]
 #         return result
 
 #     def get_column_names(self, table_name:str, table_schema='public') -> list:
 #         result = []
-#         query = f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
+#         q = f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
 #             result = [row[0] for row in _cursor]
 #         return result
     
 #     def is_exist_row(self, table_name:str, condition_query:str):
 #         result = False
-#         query = functions.get_query_is_exist_row(table_name, condition_query)
+#         q = functions.is_exist_row(table_name, condition_query)
 #         with self.get() as (_cursor, _):
-#             _cursor.execute(query)
+#             _cursor.execute(q)
 #             result_fetch = _cursor.fetchone()
 #             result = result_fetch[0]
 #         return result
@@ -267,8 +263,8 @@ class Connector():
 #         row_data\n
 #         '''
         
-#         notify_function_query = functions.get_query_notify_function(function_name, channel_name, notify_data_type)
-#         create_trigger_query = functions.get_query_create_trigger(trigger_name, table_name, function_name)
+#         notify_function_q = functions.notify_function(function_name, channel_name, notify_data_type)
+#         create_trigger_q = functions.create_trigger(trigger_name, table_name, function_name)
 #         with self.get() as (_cursor, _):
 #             try:
 #                 _cursor.execute(notify_function_query)
@@ -281,8 +277,8 @@ class Connector():
             
     
 #     def drop_trigger(self, table_name:str, trigger_name:str, function_name:str):
-#         drop_trigger_query = functions.get_query_drop_trigger(trigger_name, table_name)
-#         drop_function_query = functions.get_query_drop_function(function_name)
+#         drop_trigger_q = functions.drop_trigger(trigger_name, table_name)
+#         drop_function_q = functions.drop_function(function_name)
 #         with self.get() as (_cursor, _):
 #             try:
 #                 _cursor.execute(drop_trigger_query)
@@ -335,7 +331,7 @@ class Connector():
 #         # print("finish listening")
             
 #     def listen_channel(self, channel_name):
-#         listen_channel_query = functions.get_query_listen_channel(channel_name)
+#         listen_channel_q = functions.listen_channel(channel_name)
 #         with self.get() as (_cursor, _conn):
 #             _cursor.execute(listen_channel_query)
 #             self.connection_by_fileno[_conn.fileno()] = _conn
@@ -357,7 +353,7 @@ class Connector():
 #         #     clog.write(LogType.EXCEPTION, f"{e}")
     
 #     def unlisten_channel(self, channel_name):
-#         unlisten_channel_query = functions.get_query_unlisten_channel(channel_name)
+#         unlisten_channel_q = functions.unlisten_channel(channel_name)
 #         with self.get() as (_cursor, _conn):
 #             _cursor.execute(unlisten_channel_query)
 #             self.epoll.unregister(_conn)
