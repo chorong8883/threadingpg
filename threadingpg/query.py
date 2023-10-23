@@ -22,7 +22,7 @@ def insert(table_name:str, value_by_column_name_dict:dict) -> str:
     '''
     column_names = ''
     values = ''
-    for column_name in value_by_column_name_dict.keys():
+    for column_name in value_by_column_name_dict:
         if value_by_column_name_dict[column_name] is not None:
             column_names += f"{column_name},"
             values += f"{convert_value_to_query(value_by_column_name_dict[column_name])},"
@@ -72,7 +72,7 @@ def convert_value_to_query(value, is_in_list = False) -> str:
     return value_query[:-1]
 
 
-def create_table(table_name:str, data_type_by_column_name_dict:dict) -> str:
+def create_table(table_name:str, data_type_by_column_name_dict:dict, not_null_dict:dict, unique_dict:dict) -> str:
     '''
     Parameters
     -
@@ -81,34 +81,35 @@ def create_table(table_name:str, data_type_by_column_name_dict:dict) -> str:
     '''
     res = ''
     for column_name in data_type_by_column_name_dict:
-        res += f"{column_name} {data_type_by_column_name_dict[column_name]},"
+        res += f"{column_name} {data_type_by_column_name_dict[column_name]} "
+        if column_name in unique_dict:
+            res += f"UNIQUE "
+        if column_name in not_null_dict:
+            res += f"NOT NULL "
+        res = f"{res[:-1]},"
     query = f"CREATE TABLE {table_name} ({res[:-1]})"
     return query
 
 def drop_table(table_name:str) -> str:
     return f"DROP TABLE {table_name}"
     
-def is_exist_table(table_name:str, table_schema = 'public') -> str:
+def is_exist_table(table_name:str, table_schema:str) -> str:
     return f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '{table_schema}' AND table_name = '{table_name}');"
 
-def is_exist_column(table_name:str, column_name:str, table_schema='public'):
+def is_exist_column(table_name:str, column_name:str, table_schema:str) -> str:
     return f"SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}' AND column_name = '{column_name}')"
 
-def column_names(table_name:str, table_schema='public'):
-    return f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
+def get_columns(table_name:str, table_schema:str) -> str:
+    return f"SELECT * FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
 
-def is_exist_row(table_name:str, condition_query:str):
+def is_exist_row(table_name:str, condition_query:str) -> str:
     return f"SELECT EXISTS (SELECT FROM {table_name} WHERE {condition_query} LIMIT 1);"
 
 
 
-    
-    
 
-
-
-
-
+def get_type_name(type_code:int):
+    return f"SELECT {type_code}::regtype::text"
 
 
 

@@ -42,18 +42,29 @@ class Connector():
     # Table
     def create_table(self, table:data.Table):
         try:
-            col_dict = {}
+            column_dict = {}
+            not_null_dict = {}
+            unique_dict = {}
             for d in table.__dict__:
                 val = table.__dict__[d]
                 if isinstance(val, data.Column):
-                    if val.column_name:
-                        col_dict[val.column_name] = val.data_type
-                    else:
-                        col_dict[d] = val.data_type
+                    column_name = val.column_name if val.column_name else d
+                    column_dict[column_name] = val.data_type
                         
-            q = query.create_table(table.table_name, col_dict)
+                    if val.is_nullable is False:
+                        not_null_dict[column_name] = 1
+                        
+                    if val.is_nullable:
+                        unique_dict[column_name] = 1
+                        
+            # PRIMARY KEY	해당 제약 조건이 있는 컬럼의 값은 테이블내에서 유일해야 하고 반드시 NOT NULL 이어야 합니다.
+            # CHECK	해당 제약 조건이 있는 컬럼은 지정하는 조건에 맞는 값이 들어가야 합니다.
+            # REFERENCES	해당 제약 조건이 있는 컬럼의 값은 참조하는 테이블의 특정 컬럼에 값이 존재해야 합니다.
+                        
+            create_query = query.create_table(table.table_name, column_dict, not_null_dict, unique_dict)
+            print(create_query)
             with self.get() as (_cursor, _):
-                _cursor.execute(q)
+                _cursor.execute(create_query)
         except Exception as e:
             print(f"[{e.__class__.__name__}] create_table : {e}")
     
@@ -64,6 +75,46 @@ class Connector():
                 _cursor.execute(q)
         except Exception as e:
             print(f"[{e.__class__.__name__}] drop_table : {e}")
+            
+    def is_exist_table(self, table:data.Table, table_schema:str = 'public') -> bool:
+        result = False
+        q = query.is_exist_table(table.table_name, table_schema)
+        with self.get() as (_cursor, _):
+            _cursor.execute(q)
+            result_fetch = _cursor.fetchone()
+            result = result_fetch[0]
+        return result
+    
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    ################################################################################################################
+    # Columns
+    
+    def get_columns(self, table:data.Table, table_schema:str = 'public') -> list[data.Column]:
+        result = []
+        q = query.get_columns(table.table_name, table_schema)
+        with self.get() as (_cursor, _):
+            _cursor.execute(q)
+            type_code_by_column_name = {}
+            for col in _cursor.description:
+                type_code_by_column_name[col.name] = col.type_code
+            
+            column_data_list = _cursor.fetchall()
+            for column_data in column_data_list:
+                c = data.Column("","")
+                for index, column_name in enumerate(type_code_by_column_name):
+                    if column_name == "is_nullable":
+                        c.is_nullable = True if column_data[index] == 'YES' else False
+                    elif column_name == "is_updatable":
+                        c.is_updatable = True if column_data[index] == 'YES' else False
+                    elif column_name in c.__dict__:
+                        c.__dict__[column_name] = column_data[index]
+                result.append(c)
+        return result
+    
     
     ################################################################################################################
     ################################################################################################################
@@ -72,45 +123,46 @@ class Connector():
     ################################################################################################################
     ################################################################################################################
     # Row
-    def select(self, table: data.Table, where:condition.Condition=None, order_by:condition.Condition=None, limit_count:int = None) -> [data.Row]:
-        rows = []
+    def select(self, 
+               table: data.Table, 
+               where: condition.Condition=None, 
+               order_by: condition.Condition=None, 
+               limit_count: int = None) -> list:
         where_str = where.parse() if where else None
         order_by_str = order_by.parse() if order_by else None
-        q = query.select(table.table_name, condition_query=where_str, order_by_query=order_by_str, limit_count=limit_count)
-        
-        var_name_by_column_name = {}
-        for var_name in table.__dict__:
-            variable = table.__dict__[var_name]
-            if isinstance(variable, data.Column):
-                var_name_by_column_name[variable.column_name] = var_name
-        
-        columns:list[data.Column] = []
+        select_query = query.select(table_name= table.table_name, 
+                                    condition_query= where_str, 
+                                    order_by_query= order_by_str, 
+                                    limit_count= limit_count)
+        rows = []
         with self.get() as (_cursor, _):
-            _cursor.execute(q)
+            _cursor.execute(select_query)
             rows = _cursor.fetchall()
-            for desc in _cursor.description:
-                _cursor.execute(f"select {desc.type_code}::regtype::text")
-                type_name = _cursor.fetchone()
-                columns.append(data.Column(data_type=type_name, column_name=desc.name))
+        return rows
         
-        results = []
-        for index, row in enumerate(rows):
-            row_data = data.Row(index)
-            for index, col in enumerate(columns):
-                setattr(row_data, var_name_by_column_name[col.column_name], row[index])
-            results.append(row_data)
-        return results
-        
-    def insert(self, table: data.Table, row: data.Row):
-        variables_dict = {}
+    def insert_row(self, table: data.Table, row: data.Row):
+        value_by_column_name_dict = {}
         for d in dir(table):
             col = getattr(table, d)
             if isinstance(col, data.Column):
-                if row.__dict__[d]:
-                    variables_dict[col.column_name] = row.__dict__[d]
-        q = query.insert(table.table_name, variables_dict)
+                column_name = col.column_name if col.column_name else d
+                if d in row.__dict__:
+                    value_by_column_name_dict[column_name] = row.__dict__[d]
+        insert_query = query.insert(table.table_name, value_by_column_name_dict)
         with self.get() as (_cursor, _):
-            _cursor.execute(q)
+            _cursor.execute(insert_query)
+        
+    def insert_dict(self, table: data.Table, insert_data_dict: dict):
+        value_by_column_name_dict = {}
+        for d in dir(table):
+            col = getattr(table, d)
+            if isinstance(col, data.Column):
+                column_name = col.column_name if col.column_name else d
+                if column_name in insert_data_dict:
+                    value_by_column_name_dict[column_name] = insert_data_dict[column_name]
+        insert_query = query.insert(table.table_name, value_by_column_name_dict)
+        with self.get() as (_cursor, _):
+            _cursor.execute(insert_query)
     
     def update(self, table: data.Table, row:data.Row, where:condition.Condition):
         variables_dict = {}
@@ -122,6 +174,7 @@ class Connector():
         q = query.update(table.table_name, variables_dict, where.parse())
         with self.get() as (_cursor, _):
             _cursor.execute(q)
+
 
 # class __BaseConnector:
 #     def __init__(self):
