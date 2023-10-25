@@ -13,7 +13,7 @@ class Condition(metaclass=abc.ABCMeta):
 class Equal(Condition):
     def __init__(self, column:data.Column, value) -> None:
         self.condition_type = "="
-        self.column_name = column.column_name
+        self.column_name = column.name
         self.value = value
     def parse(self) -> str:
         return f"{self.column_name} {self.condition_type} {query.convert_value_to_query(self.value)}"
@@ -21,7 +21,7 @@ class Equal(Condition):
 class Greater(Condition):
     def __init__(self, column:data.Column, value) -> None:
         self.condition_type = ">"
-        self.column_name = column.column_name
+        self.column_name = column.name
         self.value = value
     def parse(self) -> str:
         return f"{self.column_name} {self.condition_type} {query.convert_value_to_query(self.value)}"
@@ -77,7 +77,7 @@ class Or(Condition):
 class OrderBy(Condition):
     def __init__(self, column:data.Column, is_desc:bool = False) -> None:
         self.condition_type = " "
-        self.column_name = column.column_name
+        self.column_name = column.name
         self.value = 'DESC' if is_desc else ''
     def parse(self) -> str:
         return f"{self.column_name}{self.condition_type}{self.value}"

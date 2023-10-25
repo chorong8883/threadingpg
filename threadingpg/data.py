@@ -1,23 +1,29 @@
 import abc
 
+class ColumnList(metaclass=abc.ABCMeta):
+    def __init__(self) -> None:
+        pass
+
 class Column(metaclass=abc.ABCMeta):
     def __init__(self, 
                  data_type:str,
-                 column_name:str = "",
                  precision: int = None,
                  scale: int = None,
                  type_code: int = None,
+                 is_nullable:bool = True,
                  is_unique:bool = False,
-                 is_nullable:bool = True
+                 is_primary_key:bool = False,
                  ) -> None:
         self.table_catalog = ""
         self.table_schema = ""
         self.table_name = ""
         
-        self.column_name = column_name
+        self.name = ""
         # self.ordinal_position
         # self.column_default
         self.is_nullable = is_nullable
+        self.is_primary_key = is_primary_key
+        self.references:list[Column] = []
         self.data_type = data_type
         
         self.precision = precision
@@ -63,42 +69,41 @@ class Column(metaclass=abc.ABCMeta):
         # self.generation_expression
         self.is_updatable = None
     
-    def set(self, value):
-        self.v = value
+    def add_reference(self, column):
+        if isinstance(column, Column):
+            TypeError("column should be 'data.Column' type")
+        self.references.append(column)
         
+                 
 
         
 class Row(metaclass=abc.ABCMeta):
-    def __init__(self, index:int = -1) -> None:
-        self.index = index
+    def __init__(self) -> None:
+        pass
+        
 
 class Table(metaclass=abc.ABCMeta):
-    def __init__(self, table_name:str) -> None:
-        self.table_name = table_name
+    table_name:str = None
+    def __init__(self) -> None:
+        for variable_name in dir(self):
+            if variable_name not in self.__dict__:
+                variable = getattr(self, variable_name)
+                if isinstance(variable, Column):
+                    setattr(self, variable_name, variable)
+                    variable.table_name = self.table_name
+                    variable.name = variable_name
         
-    def new_row(self) -> Row:
-        row = Row()
-        for variable_name in self.__dict__:
-            variable = self.__dict__[variable_name]
-            if isinstance(variable, Column):
-                setattr(row, variable_name, None)
-        return row
-    
-    def get_row(self, data:tuple) -> Row:
+    def convert_row(self, index_by_column_name:dict, data:tuple) -> Row:
         '''
         Parameter
         -
-        data (tuple) : row data. ex) row = connector.select()
+        data (tuple) : row data
         '''
-        index = 0
         row = Row()
         for variable_name in self.__dict__:
             variable = self.__dict__[variable_name]
             if isinstance(variable, Column):
-                if data and index<len(data):
-                    setattr(row, variable_name, data[index])
-                else:
-                    setattr(row, variable_name, None)
-                index += 1
+                index = index_by_column_name[variable_name]
+                setattr(row, variable_name, data[index])
         return row
         

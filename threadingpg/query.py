@@ -72,7 +72,7 @@ def convert_value_to_query(value, is_in_list = False) -> str:
     return value_query[:-1]
 
 
-def create_table(table_name:str, data_type_by_column_name_dict:dict, not_null_dict:dict, unique_dict:dict) -> str:
+def create_table(table_name:str, data_type_by_column_name_dict:dict, not_null_dict:dict, unique_dict:dict, references:dict) -> str:
     '''
     Parameters
     -
@@ -86,6 +86,17 @@ def create_table(table_name:str, data_type_by_column_name_dict:dict, not_null_di
             res += f"UNIQUE "
         if column_name in not_null_dict:
             res += f"NOT NULL "
+        
+        if column_name in references:
+            res += f"REFERENCES "
+            for reference_table_name in references[column_name]:
+                res += f"{reference_table_name} "
+                if isinstance(references[column_name][reference_table_name], list):
+                    res += "("
+                    for reference_column_name in references[column_name][reference_table_name]:
+                        res += f"{reference_column_name}, "
+                    res = f"{res[:-2]}) "
+            
         res = f"{res[:-1]},"
     query = f"CREATE TABLE {table_name} ({res[:-1]})"
     return query
