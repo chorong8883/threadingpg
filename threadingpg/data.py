@@ -6,18 +6,23 @@ class ColumnList(metaclass=abc.ABCMeta):
 
 class Column(metaclass=abc.ABCMeta):
     def __init__(self, 
-                 data_type:str,
-                 precision: int = None,
-                 scale: int = None,
-                 type_code: int = None,
+                 data_type: str,
+                #  precision: int = None,
+                #  scale: int = None,
+                #  type_code: int = None,
                  is_nullable:bool = True,
                  is_unique:bool = False,
                  is_primary_key:bool = False,
                  ) -> None:
+        '''
+        Column Data by 'Column' of psycopg2 and 'information_schema.columns' of postgresql.\n
+        Parameter
+        -
+        data_type (str): based on query. threadingpg.datatype
+        '''
         self.table_catalog = ""
         self.table_schema = ""
         self.table_name = ""
-        
         self.name = ""
         # self.ordinal_position
         # self.column_default
@@ -25,13 +30,13 @@ class Column(metaclass=abc.ABCMeta):
         self.is_primary_key = is_primary_key
         self.references:list[Column] = []
         self.data_type = data_type
-        
-        self.precision = precision
-        self.scale = scale
-        self.type_code = type_code
-        
+        # self.precision = precision
+        # self.scale = scale
+        # self.type_code = type_code
+        self.precision = None
+        self.scale = None
+        self.type_code = None
         self.is_unique = is_unique
-        
         self.character_maximum_length = None
         # self.character_octet_length
         self.numeric_precision = None
@@ -69,22 +74,57 @@ class Column(metaclass=abc.ABCMeta):
         # self.generation_expression
         self.is_updatable = None
     
-    def add_reference(self, column):
+    def append_reference(self, column):
         if isinstance(column, Column):
-            TypeError("column should be 'data.Column' type")
+            TypeError("column should be 'threadingpg.data.Column' type")
         self.references.append(column)
         
-                 
-
+    def remove_reference(self, column):
+        if isinstance(column, Column):
+            TypeError("column should be 'threadingpg.data.Column' type")
+        self.references.remove(column)
         
 class Row(metaclass=abc.ABCMeta):
     def __init__(self) -> None:
+        '''
+        Abstract Class(metaclass=abc.ABCMeta)\n
+        set variable name = column name\n
+        '''
         pass
-        
+    def set_data(self, column_name_list:list[str], row_data:tuple):
+        '''
+        Parameter
+        -
+        column_name_list (list[str]):
+        row_data (tuple):
+        '''
+        for index, column_name in enumerate(column_name_list):
+            if column_name in self.__dict__:
+                setattr(self, column_name, row_data[index])
 
 class Table(metaclass=abc.ABCMeta):
     table_name:str = None
-    def __init__(self) -> None:
+    def __init__(self, table_name:str=None) -> None:
+        '''
+        Abstract Class(metaclass=abc.ABCMeta)\n
+        Declare 'table_name(str)'\n
+        Define columns.\n
+        Should be same variable name in this class and column name in postgresql.\n 
+        usage:
+        -
+        class MyTable(threadingpg.data.Table):\n
+            table_name="ref"\n
+            index = threadingpg.data.Column(data_type=datatype.serial)\n
+            name = threadingpg.data.Column(data_type=datatype.varchar())\n
+            
+        class MyTable(threadingpg.data.Table):\n
+            def __init__(self) -> None:
+                self.index = threadingpg.data.Column(data_type=datatype.serial)\n
+                self.name = threadingpg.data.Column(data_type=datatype.varchar())\n
+                super().__init__("ref") # important position. set self.index.name = 'index'
+        '''
+        if not self.table_name and table_name:
+            self.table_name = table_name
         for variable_name in dir(self):
             if variable_name not in self.__dict__:
                 variable = getattr(self, variable_name)
@@ -92,18 +132,10 @@ class Table(metaclass=abc.ABCMeta):
                     setattr(self, variable_name, variable)
                     variable.table_name = self.table_name
                     variable.name = variable_name
-        
-    def convert_row(self, index_by_column_name:dict, data:tuple) -> Row:
-        '''
-        Parameter
-        -
-        data (tuple) : row data
-        '''
-        row = Row()
-        for variable_name in self.__dict__:
-            variable = self.__dict__[variable_name]
-            if isinstance(variable, Column):
-                index = index_by_column_name[variable_name]
-                setattr(row, variable_name, data[index])
-        return row
+                    
+            elif isinstance(self.__dict__[variable_name], Column):
+                self.__dict__[variable_name].table_name = self.table_name
+                self.__dict__[variable_name].name = variable_name
+                
+                    
         

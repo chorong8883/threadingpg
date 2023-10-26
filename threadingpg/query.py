@@ -1,3 +1,4 @@
+import enum
 def select(table_name:str, condition_query:str=None, order_by_query:str=None, limit_count:int=None) -> str:
     query = f"SELECT * FROM {table_name}"
     
@@ -113,27 +114,32 @@ def is_exist_column(table_name:str, column_name:str, table_schema:str) -> str:
 def get_columns(table_name:str, table_schema:str) -> str:
     return f"SELECT * FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
 
-def is_exist_row(table_name:str, condition_query:str) -> str:
-    return f"SELECT EXISTS (SELECT FROM {table_name} WHERE {condition_query} LIMIT 1);"
-
-
-
+def get_column_names(table_name:str, table_schema:str) -> str:
+    return f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
 
 def get_type_name(type_code:int):
     return f"SELECT {type_code}::regtype::text"
 
+class __NotifyType(enum.Enum):
+    Default = 0
+    TableName = 1
+    RowData = 2
 
-
-def notify_function(function_name:str, channel_name:str, notify_data_type:str):
+def notify_function(function_name:str, channel_name:str, notify_type:int):
     '''
-    notify_data_type:\n
-    table_name\n
-    code_name\n
-    row_data\n
+    function_name (str):\n
+    channel_name (str):\n
+    notify_data_type (__NotifyType):\n
+    __NotifyType:
+        Default\n
+        TableName\n
+        RowData\n
     '''
+    # exmple
+    # payload := json_build_object('timestamp',CURRENT_TIMESTAMP,'action',LOWER(TG_OP),'schema',TG_TABLE_SCHEMA,'identity',TG_TABLE_NAME,'record',row_to_json(rec), 'old',row_to_json(dat));
     query = f"CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$"
             
-    if notify_data_type == "table_name":
+    if notify_type == __NotifyType.TableName:
         query+= f"""
                 DECLARE
                     payload TEXT;
@@ -145,18 +151,7 @@ def notify_function(function_name:str, channel_name:str, notify_data_type:str):
                 $$ LANGUAGE plpgsql;
                 """ 
     
-    elif notify_data_type == "code_name":
-        query+= f"""
-                DECLARE
-                    payload TEXT;
-                BEGIN
-                    payload := json_build_object('code_name',NEW.code_name, 'unit_price',NEW.unit_price);
-                    PERFORM pg_notify('{channel_name}', payload);
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql;
-                """
-    elif notify_data_type == "row_data":
+    elif notify_type == __NotifyType.RowData:
         query+= f"""
                 DECLARE
                     payload TEXT;
@@ -168,7 +163,7 @@ def notify_function(function_name:str, channel_name:str, notify_data_type:str):
                 $$ LANGUAGE plpgsql;
                 """
                     
-    elif notify_data_type == "not_define":
+    elif notify_type == __NotifyType.Default:
         query+= f"""
                 DECLARE
                     rec RECORD;
@@ -187,14 +182,15 @@ def notify_function(function_name:str, channel_name:str, notify_data_type:str):
                         RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;
                     END CASE;
                     
-                    payload := json_build_object('action',LOWER(TG_OP), 'identity',TG_TABLE_NAME, 'record',row_to_json(rec));
+                    payload := json_build_object('action',LOWER(TG_OP), 'identity',TG_TABLE_NAME, 'record',row_to_json(rec), 'old',row_to_json(dat));
                     PERFORM pg_notify('{channel_name}', payload);
                     RETURN rec;
                 END;
                 $$ LANGUAGE plpgsql;
                 """
-    # exmple
-    # payload := json_build_object('timestamp',CURRENT_TIMESTAMP,'action',LOWER(TG_OP),'schema',TG_TABLE_SCHEMA,'identity',TG_TABLE_NAME,'record',row_to_json(rec), 'old',row_to_json(dat));
+        
+    else:
+        query = None
     return query
 
 def drop_function(function_name:str):
