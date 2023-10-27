@@ -6,7 +6,7 @@ import multiprocessing
 import ctypes
 import collections
 import traceback
-
+import sys
 import psycopg2
 import psycopg2.extensions
 from psycopg2.pool import ThreadedConnectionPool
@@ -389,12 +389,17 @@ class Connector():
         
         self.__is_listening.value = True
         self.__connection_by_fileno = collections.defaultdict(connection)
-        self.__channel_listen_epoll = select.epoll()
-        self.__message_queue = message_queue
         self.__close_sender, self.__close_receiver = socket.socketpair()
+        
+        if sys.platform == "linux":
+            self.__channel_listen_epoll = select.epoll()
+            self.__channel_listen_epoll.register(self.__close_receiver, select.EPOLLET | select.EPOLLIN | select.EPOLLHUP | select.EPOLLRDHUP)        
+            
+        self.__message_queue = message_queue
+        
         self.__listening_thread = threading.Thread(target=self.__listening)
         self.__listening_thread.start()
-        self.__channel_listen_epoll.register(self.__close_receiver, select.EPOLLET | select.EPOLLIN | select.EPOLLHUP | select.EPOLLRDHUP)        
+        
     
     def stop_channel_listener(self):
         self.__is_listening.value = False
@@ -402,53 +407,55 @@ class Connector():
         self.__listening_thread.join()
         
     def __listening(self):
-        try:
-            while self.__is_listening.value:
-                print("__listening")
-                
-                readables, writeables, exceptions = select.select([self.__listen_connector, self.__close_receiver],[],[])
-                print(readables)
-                print(writeables)
-                print(exceptions)
-                for s in readables:
-                    if s == self.__listen_connector:
-                        if self.__listen_connector.closed:
-                            print("postgre Connection Closed.")
+        if sys.platform == "linux":
+            try:
+                while self.__is_listening.value:
+                    events = self.__channel_listen_epoll.poll()
+                    if self.__is_listening.value:
+                        for detect_fileno, detect_event in events:
+                            if detect_fileno == self.__close_receiver.fileno():
+                                self.__is_listening.value = False
+                                print("exit epoll")
+                                break
+                            elif detect_event & (select.EPOLLIN | select.EPOLLPRI):
+                                conn:connection = self.__connection_by_fileno[detect_fileno]
+                                res = conn.poll()
+                                print(f"{detect_event:#06x} EPOLLIN:{select.EPOLLIN:#06x} EPOLLPRI:{select.EPOLLPRI:#06x} conn[{detect_fileno}] len:{len(conn.notifies)} res:{res}")
+                                while conn.notifies:
+                                    notify = conn.notifies.pop(0)
+                                    self.__message_queue.put_nowait(notify.payload)
+                            else:
+                                print(f"else {detect_event:#06x} EPOLLOUT:{select.EPOLLOUT:#06x} EPOLLHUP:{select.EPOLLHUP:#06x} conn[{detect_fileno}]")
+                                conn:connection = self.__connection_by_fileno[detect_fileno]
+                                print(f"else {conn}")
+                print("__listening exit ")
+            except Exception as e:
+                print(f"{e}\n{traceback.format_exc()}")
+        else:
+            try:
+                while self.__is_listening.value:
+                    print("__listening")
+                    
+                    readables, writeables, exceptions = select.select([self.__listen_connector, self.__close_receiver],[],[])
+                    print(readables)
+                    print(writeables)
+                    print(exceptions)
+                    for s in readables:
+                        if s == self.__listen_connector:
+                            if self.__listen_connector.closed:
+                                print("postgre Connection Closed.")
+                                break
+                            self.__listen_connector.poll()
+                            while self.__listen_connector.notifies:
+                                notify = self.__listen_connector.notifies.pop(0)
+                                self.__message_queue.put_nowait(notify.payload)
+                        elif s == self.__close_receiver:
+                            self.__is_listening.value = False
                             break
-                        self.__listen_connector.poll()
-                        while self.__listen_connector.notifies:
-                            notify = self.__listen_connector.notifies.pop(0)
-                            self.__message_queue.put_nowait(notify.payload)
-                    elif s == self.__close_receiver:
-                        self.__is_listening.value = False
-                        break
-            print("End Notify Listener Thread.")
-        except Exception as e:
-            print(f"{e}\n{traceback.format_exc()}")
-        
-        # try:
-        #     while self.__is_listening.value:
-        #         events = self.__channel_listen_epoll.poll()
-        #         if self.__is_listening.value:
-        #             for detect_fileno, detect_event in events:
-        #                 if detect_fileno == self.__close_receiver.fileno():
-        #                     self.__is_listening.value = False
-        #                     print("exit epoll")
-        #                     break
-        #                 elif detect_event & (select.EPOLLIN | select.EPOLLPRI):
-        #                     conn:connection = self.__connection_by_fileno[detect_fileno]
-        #                     res = conn.poll()
-        #                     print(f"{detect_event:#06x} EPOLLIN:{select.EPOLLIN:#06x} EPOLLPRI:{select.EPOLLPRI:#06x} conn[{detect_fileno}] len:{len(conn.notifies)} res:{res}")
-        #                     while conn.notifies:
-        #                         notify = conn.notifies.pop(0)
-        #                         self.__message_queue.put_nowait(notify.payload)
-        #                 else:
-        #                     print(f"else {detect_event:#06x} EPOLLOUT:{select.EPOLLOUT:#06x} EPOLLHUP:{select.EPOLLHUP:#06x} conn[{detect_fileno}]")
-        #                     conn:connection = self.__connection_by_fileno[detect_fileno]
-        #                     print(f"else {conn}")
-        #     print("__listening exit ")
-        # except Exception as e:
-        #     print(f"{e}\n{traceback.format_exc()}")
+                print("End Notify Listener Thread.")
+            except Exception as e:
+                print(f"{e}\n{traceback.format_exc()}")
+            
         self.__message_queue.put_nowait(None)
         
     def listen_channel(self, channel_name:str):
@@ -457,11 +464,13 @@ class Connector():
         cursor.execute(listen_channel_query)
         cursor.close()
         self.__connection_by_fileno[self.__listen_connector.fileno()] = self.__listen_connector
-        self.__channel_listen_epoll.register(self.__listen_connector, select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
+        if sys.platform == "linux":
+            self.__channel_listen_epoll.register(self.__listen_connector, select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
 
     def unlisten_channel(self, channel_name):
         unlisten_channel_query = query.unlisten_channel(channel_name)
         cursor = self.__listen_connector.cursor()
         cursor.execute(unlisten_channel_query)
         cursor.close()
-        self.__channel_listen_epoll.unregister(self.__listen_connector)
+        if sys.platform == "linux":
+            self.__channel_listen_epoll.unregister(self.__listen_connector)
