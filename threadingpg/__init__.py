@@ -280,6 +280,11 @@ class Connector():
             
     
     def update_row(self, table: data.Table, row:data.Row, where:condition.Condition):
+        '''
+        table (data.Table)
+        row (data.Row)
+        where (condition.Condition)
+        '''
         value_by_column_name = {}
         for variable_name in dir(table):
             column = getattr(table, variable_name)

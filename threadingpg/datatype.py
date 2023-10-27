@@ -20,7 +20,12 @@ def character(n:int = 1):
     '''fixed-length character string'''
     return f'character({n})'
 def varchar(n:int = None):
-    '''variable-length character string'''
+    '''
+    variable-length character string.
+    Parameter
+    -
+    n (int): default None is none limit.
+    '''
     return f'varchar({n})' if n else 'varchar'
 
 cidr = 'cidr'
