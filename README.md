@@ -73,7 +73,7 @@ conditions = threadingpg.condition.Or(condition_equal_1, condition_equal_2, cond
 column_name_list, rows = connector.select(mytable, where=conditions)
 ```
 
-# Insert Row
+# Update Row
 ```python
 mytable = MyTable()
 myrow = MyRow("update_my_row")
