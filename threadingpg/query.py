@@ -112,7 +112,7 @@ def is_exist_column(table_name:str, column_name:str, table_schema:str) -> str:
     return f"SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}' AND column_name = '{column_name}')"
 
 def get_columns(table_name:str, table_schema:str) -> str:
-    return f"SELECT * FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
+    return f"SELECT * FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}';"
 
 def get_column_names(table_name:str, table_schema:str) -> str:
     return f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
@@ -120,87 +120,198 @@ def get_column_names(table_name:str, table_schema:str) -> str:
 def get_type_name(type_code:int):
     return f"SELECT {type_code}::regtype::text"
 
-class __NotifyType(enum.Enum):
-    Default = 0
-    TableName = 1
-    RowData = 2
-
-def notify_function(function_name:str, channel_name:str, notify_type:int):
-    '''
-    function_name (str):\n
-    channel_name (str):\n
-    notify_data_type (__NotifyType):\n
-    __NotifyType:
-        Default\n
-        TableName\n
-        RowData\n
-    '''
-    # exmple
-    # payload := json_build_object('timestamp',CURRENT_TIMESTAMP,'action',LOWER(TG_OP),'schema',TG_TABLE_SCHEMA,'identity',TG_TABLE_NAME,'record',row_to_json(rec), 'old',row_to_json(dat));
-    query = f"CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$"
-            
-    if notify_type == __NotifyType.TableName:
-        query+= f"""
-                DECLARE
-                    payload TEXT;
-                BEGIN
-                    payload := json_build_object('table_name',TG_TABLE_NAME, 'action',LOWER(TG_OP));
-                    PERFORM pg_notify('{channel_name}', payload);
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql;
-                """ 
+def create_trigger_function1(function_name:str, 
+                            channel_name:str):
+    return f"""
+            CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$
+            DECLARE
+                notification json;
+            BEGIN
+                notification = json_build_object(
+                    'type', TG_OP
+                );
+                PERFORM pg_notify('{channel_name}', notification::text);
+                RETURN NULL;
+            END;
+            $$ LANGUAGE plpgsql;
+    """
     
-    elif notify_type == __NotifyType.RowData:
-        query+= f"""
-                DECLARE
-                    payload TEXT;
-                BEGIN
-                    payload := row_to_json(NEW);
-                    PERFORM pg_notify('{channel_name}', payload);
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql;
-                """
-                    
-    elif notify_type == __NotifyType.Default:
-        query+= f"""
-                DECLARE
-                    rec RECORD;
-                    dat RECORD;
-                    payload TEXT;
-                BEGIN
-                    CASE TG_OP
-                    WHEN 'UPDATE' THEN
-                        rec := NEW;
-                        dat := OLD;
-                    WHEN 'INSERT' THEN
-                        rec := NEW;
-                    WHEN 'DELETE' THEN
-                        rec := OLD;
-                    ELSE
-                        RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;
-                    END CASE;
-                    
-                    payload := json_build_object('action',LOWER(TG_OP), 'identity',TG_TABLE_NAME, 'record',row_to_json(rec), 'old',row_to_json(dat));
-                    PERFORM pg_notify('{channel_name}', payload);
-                    RETURN rec;
-                END;
-                $$ LANGUAGE plpgsql;
-                """
+def create_trigger_function(function_name:str, 
+                            channel_name:str,
+                            is_replace:bool,
+                            is_get_operation:bool,
+                            is_get_timestamp:bool,
+                            is_get_tablename:bool,
+                            is_get_new:bool,
+                            is_get_old:bool,
+                            is_update:bool,
+                            is_insert:bool,
+                            is_delete:bool,
+                            is_raise_unknown_operation:bool,
+                            is_after_trigger:bool,
+                            is_inline:bool,
+                            in_space:str = '    '):
+    
+    if not (function_name and channel_name):
+            raise ValueError("function_name channel_name")
         
-    else:
-        query = None
-    return query
+    if not (is_get_operation or is_get_timestamp or is_get_tablename or is_get_new or is_get_old):
+        raise ValueError("get nothing")
+    
+    if not (is_update or is_insert or is_delete):
+        raise ValueError("none case")
+    if is_inline:
+        in_space = ""
+    query_list = []
+        
+    command = "CREATE "
+    if is_replace:
+        command += "OR REPLACE"
+    query_list.append(command)
+    query_list.append(f"FUNCTION {function_name}()")
+    query_list.append("RETURNS trigger")
+    query_list.append("AS $$")
+    query_list.append("DECLARE")
+    if is_update or is_insert:
+        query_list.append(f"{in_space}newrec RECORD;")
+    if is_update or is_delete:
+        query_list.append(f"{in_space}oldrec RECORD;")
+    query_list.append(f"{in_space}payload json;")
+    query_list.append("BEGIN")
+    
+    if is_update or is_insert or is_delete:
+        query_list.append(f"{in_space}CASE TG_OP")
+    
+    if is_update:
+        query_list.append(f"{in_space}WHEN 'UPDATE' THEN")
+        query_list.append(f"{in_space}{in_space}newrec := NEW;")
+        query_list.append(f"{in_space}{in_space}oldrec := OLD;")
+                
+    if is_insert:
+        query_list.append(f"{in_space}WHEN 'INSERT' THEN")
+        query_list.append(f"{in_space}{in_space}newrec := NEW;")
+    
+    if is_delete:
+        query_list.append(f"{in_space}WHEN 'DELETE' THEN")
+        query_list.append(f"{in_space}{in_space}oldrec := OLD;")
+        
+    if is_update or is_insert or is_delete:
+    #     if is_raise_unknown_operation:
+        query_list.append(f"{in_space}ELSE")
+        query_list.append(f"""{in_space}{in_space}RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;""")
+    #     else:
+    #         query_list.append(f"{in_space}ELSE")
+    #         if is_after_trigger:
+    #             query_list.append(f"{in_space}{in_space}RETURN NULL;")
+    #         elif is_update or is_insert:
+    #             query_list.append(f"{in_space}{in_space}RETURN newrec;")
+    #         elif is_update or is_delete:
+    #             query_list.append(f"{in_space}{in_space}RETURN oldrec;")
+                    
+        query_list.append(f"{in_space}END CASE;")
+    
+    query_list.append(f"{in_space}payload := json_build_object(")
+    
+    payload_variables = []
+    if is_get_timestamp:
+        payload_variables.append(f"{in_space}{in_space}'timestamp', CURRENT_TIMESTAMP")        
+    if is_get_operation:
+        payload_variables.append(f"{in_space}{in_space}'operation', LOWER(TG_OP)")
+    if is_get_tablename:
+        payload_variables.append(f"{in_space}{in_space}'table_name', TG_TABLE_NAME")
+    if is_get_new:
+        if is_update or is_insert:
+            payload_variables.append(f"{in_space}{in_space}'new_record', row_to_json(newrec)")
+    if is_get_old:
+        if is_update or is_delete:
+            payload_variables.append(f"{in_space}{in_space}'old_record', row_to_json(oldrec)")
+    
+    join_payload_variables_str = ",\n"
+    if is_inline:
+        join_payload_variables_str = ", "
+    payload_variables_str = join_payload_variables_str.join(payload_variables)
+    
+    query_list.append(f"{payload_variables_str}\n{in_space});")
+    query_list.append(f"{in_space}PERFORM pg_notify('{channel_name}', payload::text);")
+    
+    # if is_after_trigger:
+        # query_list.append(f"{in_space}RETURN NULL;")
+    if is_update or is_insert:
+        query_list.append(f"{in_space}RETURN newrec;")
+    elif is_update or is_delete:
+        query_list.append(f"{in_space}RETURN oldrec;")
+        
+    query_list.append("END;")
+    query_list.append("$$ LANGUAGE plpgsql;")
+    join_str = "\n"
+    if is_inline:
+        join_str = " "
+    return join_str.join(query_list)
+
 
 def drop_function(function_name:str):
     return f'DROP FUNCTION {function_name}();'
+
+def select_function(function_name:str, is_definition:bool):
+    query = f"SELECT "
+    if is_definition:
+        query += "routine_definition "
+    else:
+        query += "* "
+    query += f"FROM INFORMATION_SCHEMA.ROUTINES where routine_name = '{function_name}';"    
+    return query
+
         
-def create_trigger(trigger_name:str, table_name:str, function_name:str):
-    return f"CREATE TRIGGER {trigger_name} AFTER INSERT OR UPDATE ON {table_name} FOR EACH ROW EXECUTE PROCEDURE {function_name}();"
+def create_trigger(table_name:str,
+                   trigger_name:str, 
+                   function_name:str,
+                   is_replace:bool,
+                   is_after:bool,
+                   is_insert:bool,
+                   is_update:bool,
+                   is_delete:bool):
+    '''
+    Parameters
+    -
+    table_name (str):\n
+    trigger_name (str):\n 
+    function_name (str):\n
+    is_replace (bool): REPLACE command available PostgreSQL version >= 14\n
+    is_after (bool):\n
+    is_insert (bool):\n
+    is_update (bool):\n
+    is_delete (bool):\n
     
-def drop_trigger(trigger_name:str, table_name:str):
+    '''
+        
+    query = f"CREATE "
+    if is_replace:
+        query += f"OR REPLACE "
+    query += f"TRIGGER {trigger_name} "
+    
+    if is_after:
+        query += f"AFTER "
+    else:
+        query += f"BEFORE "
+    
+    trigger_types = []
+    if is_insert:
+        trigger_types.append("INSERT ")
+    if is_update:
+        trigger_types.append("UPDATE ")
+    if is_delete:
+        trigger_types.append("DELETE ")
+            
+    query += "OR ".join(trigger_types)
+    query += f"ON {table_name} FOR EACH ROW EXECUTE PROCEDURE {function_name}();"
+    return query
+    
+def drop_trigger(table_name:str, trigger_name:str):
     return f"DROP TRIGGER {trigger_name} on {table_name};"
+
+def select_trigger():
+    return f"SELECT * FROM pg_trigger;"
+
         
 def listen_channel(channel_name:str):
     return f"LISTEN {channel_name};"

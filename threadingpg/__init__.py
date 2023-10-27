@@ -1,19 +1,23 @@
-from typing import Any
+import queue
+import select
+import socket
+import threading
+import multiprocessing
+import ctypes
+import collections
+import traceback
+
 import psycopg2
 import psycopg2.extensions
 from psycopg2.pool import ThreadedConnectionPool
 # from psycopg2.extensions import cursor
-# from psycopg2.extensions import connection
+from psycopg2.extensions import connection
 # from psycopg2.extensions import make_dsn
 # from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from contextlib import contextmanager
 from threadingpg import query
 from threadingpg import condition
 from threadingpg import data
-from threadingpg import notify
-import inspect
-import traceback
-import enum
 
 # class NotifyType(enum.Enum):
 #     Default = 0
@@ -38,11 +42,16 @@ class Connector():
         '''
         self.dsn = psycopg2.extensions.make_dsn(host=host, dbname=dbname, user=user, password=password, port=port)
         self.__pool = ThreadedConnectionPool(1, 5, self.dsn)
+        self.__is_listening = multiprocessing.Value(ctypes.c_bool, True)
+        
     
     def close(self):
         '''
         connection_pool.closeall()
         '''
+        if self.__is_listening.value:
+            self.stop_channel_listener()
+            
         if self.__pool is not None and self.__pool.closed is False:
             self.__pool.closeall()
 
@@ -65,7 +74,28 @@ class Connector():
         finally:
             cursor.close()
             self.__pool.putconn(conn)
-            
+    
+    def execute(self, excutable_query:str):
+        with self.get() as (cursor, _):
+            cursor.execute(excutable_query)
+    
+    def get_code_by_datatype(self):
+        typedict = {}
+        with self.get() as (_cursor, _):
+            _cursor.execute("select oid, typname from pg_type")
+            rs = _cursor.fetchall()
+            for r in rs:
+                typedict[str(r[1])] = r[0]
+        return typedict
+    def get_datatype_by_code(self):
+        typedict = {}
+        with self.get() as (_cursor, _):
+            _cursor.execute("select oid, typname from pg_type")
+            rs = _cursor.fetchall()
+            for r in rs:
+                typedict[str(r[0])] = r[1]
+        return typedict
+    
     ################################################################################################################
     ################################################################################################################
     ################################################################################################################
@@ -144,6 +174,7 @@ class Connector():
         '''
         result = {}
         get_columns_query = query.get_columns(table.table_name, table_schema)
+        print(f"get_columns_query : {get_columns_query}")
         with self.get() as (cursor, _):
             cursor.execute(get_columns_query)
             type_code_by_data_name = {}
@@ -265,115 +296,145 @@ class Connector():
     ################################################################################################################
     ################################################################################################################
     ################################################################################################################
-    # Trigger
-    # def create_notify_function(self, function_name:str, channel_name:str, notify_type:NotifyType):
-    #     '''
-    #     Parameters
-    #     -
-    #     function_name (str):\n
-    #     channel_name (str):\n
-    #     notify_type (NotifyType):\n
-    #     Default:\n
-    #     TableName:\n
-    #     RowData:\n
-    #     '''
-        
-    #     notify_function_query = query.notify_function(function_name, channel_name, notify_type)
-    #     with self.get() as (cursor, _):
-    #         cursor.execute(notify_function_query)
-        
-    # def create_trigger(self, table_name:str, trigger_name:str, function_name:str):
-    #     '''
-    #     Parameters
-    #     -
-    #     table_name (str):\n
-    #     trigger_name (str):\n
-    #     function_name (str):\n
-    #     '''
-    #     create_trigger_query = query.create_trigger(trigger_name, table_name, function_name)
-    #     with self.get() as (cursor, _):
-    #         cursor.execute(create_trigger_query)
+    # Function
+    def create_trigger_function1(self,
+                                function_name:str, 
+                                channel_name:str):
+        create_trigger_function_query = query.create_trigger_function1(function_name, channel_name)
+        print(create_trigger_function_query)
+        with self.get() as (cursor, _):
+            cursor.execute(create_trigger_function_query)
             
+    def create_trigger_function(self,
+                                function_name:str, 
+                                channel_name:str,
+                                is_replace:bool = True,
+                                is_get_operation:bool = True,
+                                is_get_timestamp:bool = True,
+                                is_get_tablename:bool = True,
+                                is_get_new:bool = True,
+                                is_get_old:bool = True,
+                                is_update:bool = True,
+                                is_insert:bool = True,
+                                is_delete:bool = True,
+                                is_raise_unknown_operation:bool = True,
+                                is_after_trigger:bool = True,
+                                is_inline:bool = False,
+                                in_space:str = '    '):
+        create_trigger_function_query = query.create_trigger_function(function_name, 
+                                                                    channel_name,
+                                                                    is_replace,
+                                                                    is_get_operation,
+                                                                    is_get_timestamp,
+                                                                    is_get_tablename,
+                                                                    is_get_new,
+                                                                    is_get_old,
+                                                                    is_update,
+                                                                    is_insert,
+                                                                    is_delete,
+                                                                    is_raise_unknown_operation,
+                                                                    is_after_trigger,
+                                                                    is_inline,
+                                                                    in_space)
+        print(create_trigger_function_query)
+        with self.get() as (cursor, _):
+            cursor.execute(create_trigger_function_query)
             
-#     def drop_trigger(self, table_name:str, trigger_name:str, function_name:str):
-#         drop_trigger_q = functions.drop_trigger(trigger_name, table_name)
-#         drop_function_q = functions.drop_function(function_name)
-#         with self.get() as (cursor, _):
-#             try:
-#                 cursor.execute(drop_trigger_query)
-#             except Exception as e:
-#                 pass
-#             try:
-#                 cursor.execute(drop_function_query)
-#             except Exception as e:
-#                 pass
-    
-#     def start_listening(self, notify_queue : queue.Queue):
-#         self.connection_by_fileno = collections.defaultdict(connection)
-#         self.epoll = select.epoll()
-#         self.is_listening = multiprocessing.Value(ctypes.c_bool, True)
-#         self.notify_queue = notify_queue
-#         self.close_sender, self.close_recver = socket.socketpair()
-#         self.epoll.register(self.close_recver, select.EPOLLET)
-        
-#         self.listening_thread = threading.Thread(target=self.listening)
-#         self.listening_thread.start()
-    
-#     def stop_listening(self):
-#         self.is_listening.value = False
-#         self.close_sender.shutdown(socket.SHUT_RDWR)
-#         self.listening_thread.join()
-#         # print("finish stop_listening")
-        
-#     def listening(self):
-#         while self.is_listening.value:
-#             events = self.epoll.poll()
-#             if self.is_listening.value:
-#                 for detect_fileno, detect_event in events:
-#                     if detect_fileno == self.close_recver.fileno():
-#                         self.is_listening.value = False
-#                         break
-#                     elif detect_fileno in self.connection_by_fileno:
-#                         if detect_event & (select.EPOLLIN | select.EPOLLPRI):
-#                             conn:connection = self.connection_by_fileno[detect_fileno]
-#                             res = conn.poll()
-#                             # print(f"{detect_event:#06x} conn[{detect_fileno}] len:{len(conn.notifies)} res:{res}")
-#                             while conn.notifies:
-#                                 notify = conn.notifies.pop(0)
-#                                 self.notify_queue.put_nowait(notify.payload)
-#                     #     else:
-#                     #         print(f"{detect_event:#06x} conn[{detect_fileno}]")
-#                     # else:
-#                     #     print(f"unknown {detect_fileno} {detect_event:#06x}")
-        
-#         self.notify_queue.put_nowait(None)
-#         # print("finish listening")
+    def create_trigger(self, 
+                       table:data.Table, 
+                       trigger_name:str, 
+                       function_name:str,
+                       is_replace:bool = False,
+                       is_after:bool = True,
+                       is_insert:bool = True,
+                       is_update:bool = True,
+                       is_delete:bool = True):
+        '''
+        Parameters
+        -
+        table (threadingpg.data.Table):\n
+        trigger_name (str):\n
+        function_name (str):\n
+        is_replace (bool):\n
+        is_after (bool):\n
+        is_insert (bool):\n
+        is_update (bool):\n
+        is_delete (bool):\n
+        '''
+        create_trigger_query = query.create_trigger(table.table_name, 
+                                                    trigger_name, 
+                                                    function_name,
+                                                    is_replace,
+                                                    is_after,
+                                                    is_insert,
+                                                    is_update,
+                                                    is_delete)
+        print(create_trigger_query)
+        with self.get() as (cursor, _):
+            cursor.execute(create_trigger_query)
             
-#     def listen_channel(self, channel_name):
-#         listen_channel_q = functions.listen_channel(channel_name)
-#         with self.get() as (cursor, _conn):
-#             cursor.execute(listen_channel_query)
-#             self.connection_by_fileno[_conn.fileno()] = _conn
-#             self.epoll.register(_conn.fileno(), select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLOUT | select.EPOLLHUP | select.EPOLLRDHUP)
-#             # print(f"self.epoll.register, {_conn.fileno}")
-#         # try:
-#         #     while True:
-#         #         with self._postgre_connector.get() as (_, conn):
-#         #             select.select([conn],[],[])
-#         #             if conn.closed:
-#         #                 clog.write(LogType.INFORMATION, "postgre Connection Closed.")
-#         #                 break
-#         #             conn.poll()
-#         #             while conn.notifies:
-#         #                 notify = conn.notifies.pop(0)
-#         #                 notify_queue.put_nowait(notify.payload)
-#         #     clog.write(LogType.INFORMATION, "End Notify Listener Thread.")
-#         # except Exception as e:
-#         #     clog.write(LogType.EXCEPTION, f"{e}")
+    def drop_trigger(self, table:data.Table, trigger_name:str):
+        drop_trigger_query = query.drop_trigger(table.table_name, trigger_name)
+        with self.get() as (cursor, _):
+            cursor.execute(drop_trigger_query)
     
-#     def unlisten_channel(self, channel_name):
-#         unlisten_channel_q = functions.unlisten_channel(channel_name)
-#         with self.get() as (cursor, _conn):
-#             cursor.execute(unlisten_channel_query)
-#             self.epoll.unregister(_conn)
+    def drop_function(self, function_name:str):
+        drop_function_query = query.drop_function(function_name)
+        with self.get() as (cursor, _):
+            cursor.execute(drop_function_query)
+    
+    def start_channel_listener(self, message_queue:queue.Queue):
+        self.__is_listening.value = True
+        self.__connection_by_fileno = collections.defaultdict(connection)
+        self.__channel_listen_epoll = select.epoll()
+        self.__message_queue = message_queue
+        self.__close_sender, self.__close_receiver = socket.socketpair()
+        self.__channel_listen_epoll.register(self.__close_receiver, select.EPOLLET | select.EPOLLIN | select.EPOLLHUP | select.EPOLLRDHUP)        
+        self.__listening_thread = threading.Thread(target=self.__listening)
+        self.__listening_thread.start()
+    
+    def stop_channel_listener(self):
+        self.__is_listening.value = False
+        self.__close_sender.shutdown(socket.SHUT_RDWR)
+        self.__listening_thread.join()
         
+    def __listening(self):
+        try:
+            while self.__is_listening.value:
+                events = self.__channel_listen_epoll.poll()
+                if self.__is_listening.value:
+                    for detect_fileno, detect_event in events:
+                        if detect_fileno == self.__close_receiver.fileno():
+                            self.__is_listening.value = False
+                            print("exit epoll")
+                            break
+                        elif detect_event & (select.EPOLLIN | select.EPOLLPRI):
+                            conn:connection = self.__connection_by_fileno[detect_fileno]
+                            res = conn.poll()
+                            print(f"{detect_event:#06x} EPOLLIN:{select.EPOLLIN:#06x} EPOLLPRI:{select.EPOLLPRI:#06x} conn[{detect_fileno}] len:{len(conn.notifies)} res:{res}")
+                            while conn.notifies:
+                                print(conn.notifies)
+                                notify = conn.notifies.pop(0)
+                                self.__message_queue.put_nowait(notify.payload)
+                        else:
+                            print(f"{detect_event:#06x} EPOLLOUT:{select.EPOLLOUT:#06x} EPOLLHUP:{select.EPOLLHUP:#06x} conn[{detect_fileno}]")
+                            conn:connection = self.__connection_by_fileno[detect_fileno]
+                            print(conn)
+            print("__listening exit ")
+        except Exception as e:
+            print(f"{e}\n{traceback.format_exc()}")
+        self.__message_queue.put_nowait(None)
+        
+    def listen_channel(self, channel_name:str):
+        listen_channel_query = query.listen_channel(channel_name)
+        with self.get() as (cursor, _conn):
+            cursor.execute(listen_channel_query)
+            print(f"listen_channel conn[{_conn.fileno()}]")
+            self.__connection_by_fileno[_conn.fileno()] = _conn
+            self.__channel_listen_epoll.register(_conn.fileno(), select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
+
+    def unlisten_channel(self, channel_name):
+        unlisten_channel_query = query.unlisten_channel(channel_name)
+        with self.get() as (cursor, _conn):
+            cursor.execute(unlisten_channel_query)
+            self.__channel_listen_epoll.unregister(_conn)
