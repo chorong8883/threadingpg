@@ -172,10 +172,7 @@ def create_trigger_function(function_name:str,
     query_list.append("RETURNS trigger")
     query_list.append("AS $$")
     query_list.append("DECLARE")
-    if is_update or is_insert:
-        query_list.append(f"{in_space}newrec RECORD;")
-    if is_update or is_delete:
-        query_list.append(f"{in_space}oldrec RECORD;")
+    query_list.append(f"{in_space}rec RECORD;")
     query_list.append(f"{in_space}payload json;")
     query_list.append("BEGIN")
     
@@ -183,17 +180,16 @@ def create_trigger_function(function_name:str,
         query_list.append(f"{in_space}CASE TG_OP")
     
     if is_update:
-        query_list.append(f"{in_space}WHEN 'UPDATE' THEN")
-        query_list.append(f"{in_space}{in_space}newrec := NEW;")
-        query_list.append(f"{in_space}{in_space}oldrec := OLD;")
+        query_list.append(f"{in_space}{in_space}WHEN 'UPDATE' THEN")
+        query_list.append(f"{in_space}{in_space}{in_space}rec := NEW;")
                 
     if is_insert:
-        query_list.append(f"{in_space}WHEN 'INSERT' THEN")
-        query_list.append(f"{in_space}{in_space}newrec := NEW;")
+        query_list.append(f"{in_space}{in_space}WHEN 'INSERT' THEN")
+        query_list.append(f"{in_space}{in_space}{in_space}rec := NEW;")
     
     if is_delete:
-        query_list.append(f"{in_space}WHEN 'DELETE' THEN")
-        query_list.append(f"{in_space}{in_space}oldrec := OLD;")
+        query_list.append(f"{in_space}{in_space}WHEN 'DELETE' THEN")
+        query_list.append(f"{in_space}{in_space}{in_space}rec := OLD;")
         
     if is_update or is_insert or is_delete:
     #     if is_raise_unknown_operation:
@@ -221,10 +217,10 @@ def create_trigger_function(function_name:str,
         payload_variables.append(f"{in_space}{in_space}'table_name', TG_TABLE_NAME")
     if is_get_new:
         if is_update or is_insert:
-            payload_variables.append(f"{in_space}{in_space}'new_record', row_to_json(newrec)")
+            payload_variables.append(f"{in_space}{in_space}'new_record', row_to_json(NEW)::text")
     if is_get_old:
         if is_update or is_delete:
-            payload_variables.append(f"{in_space}{in_space}'old_record', row_to_json(oldrec)")
+            payload_variables.append(f"{in_space}{in_space}'old_record', row_to_json(OLD)::text")
     
     join_payload_variables_str = ",\n"
     if is_inline:
@@ -236,10 +232,7 @@ def create_trigger_function(function_name:str,
     
     # if is_after_trigger:
         # query_list.append(f"{in_space}RETURN NULL;")
-    if is_update or is_insert:
-        query_list.append(f"{in_space}RETURN newrec;")
-    elif is_update or is_delete:
-        query_list.append(f"{in_space}RETURN oldrec;")
+    query_list.append(f"{in_space}RETURN rec;")
         
     query_list.append("END;")
     query_list.append("$$ LANGUAGE plpgsql;")
