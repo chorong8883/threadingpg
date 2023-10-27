@@ -13,7 +13,7 @@ from psycopg2.pool import ThreadedConnectionPool
 # from psycopg2.extensions import cursor
 from psycopg2.extensions import connection
 # from psycopg2.extensions import make_dsn
-# from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from contextlib import contextmanager
 from threadingpg import query
 from threadingpg import condition
@@ -301,7 +301,7 @@ class Connector():
                                 function_name:str, 
                                 channel_name:str):
         create_trigger_function_query = query.create_trigger_function1(function_name, channel_name)
-        print(create_trigger_function_query)
+        print(f"create_trigger_function_query :\n{create_trigger_function_query}")
         with self.get() as (cursor, _):
             cursor.execute(create_trigger_function_query)
             
@@ -319,7 +319,7 @@ class Connector():
                                 is_delete:bool = True,
                                 is_raise_unknown_operation:bool = True,
                                 is_after_trigger:bool = True,
-                                is_inline:bool = False,
+                                is_inline:bool = True,
                                 in_space:str = '    '):
         create_trigger_function_query = query.create_trigger_function(function_name, 
                                                                     channel_name,
@@ -345,7 +345,7 @@ class Connector():
                        trigger_name:str, 
                        function_name:str,
                        is_replace:bool = False,
-                       is_after:bool = True,
+                       is_after:bool = False,
                        is_insert:bool = True,
                        is_update:bool = True,
                        is_delete:bool = True):
@@ -384,14 +384,17 @@ class Connector():
             cursor.execute(drop_function_query)
     
     def start_channel_listener(self, message_queue:queue.Queue):
+        self.__listen_connector = psycopg2.connect(self.dsn)
+        self.__listen_connector.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        
         self.__is_listening.value = True
         self.__connection_by_fileno = collections.defaultdict(connection)
-        # self.__channel_listen_epoll = select.epoll()
+        self.__channel_listen_epoll = select.epoll()
         self.__message_queue = message_queue
         self.__close_sender, self.__close_receiver = socket.socketpair()
-        # self.__channel_listen_epoll.register(self.__close_receiver, select.EPOLLET | select.EPOLLIN | select.EPOLLHUP | select.EPOLLRDHUP)        
         self.__listening_thread = threading.Thread(target=self.__listening)
         self.__listening_thread.start()
+        self.__channel_listen_epoll.register(self.__close_receiver, select.EPOLLET | select.EPOLLIN | select.EPOLLHUP | select.EPOLLRDHUP)        
     
     def stop_channel_listener(self):
         self.__is_listening.value = False
@@ -400,17 +403,25 @@ class Connector():
         
     def __listening(self):
         try:
-            while True:
+            while self.__is_listening.value:
                 print("__listening")
-                with self.get() as (_, conn):
-                    select.select([conn],[],[])
-                    if conn.closed:
-                        print("postgre Connection Closed.")
+                
+                readables, writeables, exceptions = select.select([self.__listen_connector, self.__close_receiver],[],[])
+                print(readables)
+                print(writeables)
+                print(exceptions)
+                for s in readables:
+                    if s == self.__listen_connector:
+                        if self.__listen_connector.closed:
+                            print("postgre Connection Closed.")
+                            break
+                        self.__listen_connector.poll()
+                        while self.__listen_connector.notifies:
+                            notify = self.__listen_connector.notifies.pop(0)
+                            self.__message_queue.put_nowait(notify.payload)
+                    elif s == self.__close_receiver:
+                        self.__is_listening.value = False
                         break
-                    conn.poll()
-                    while conn.notifies:
-                        notify = conn.notifies.pop(0)
-                        self.__message_queue.put_nowait(notify.payload)
             print("End Notify Listener Thread.")
         except Exception as e:
             print(f"{e}\n{traceback.format_exc()}")
@@ -429,13 +440,12 @@ class Connector():
         #                     res = conn.poll()
         #                     print(f"{detect_event:#06x} EPOLLIN:{select.EPOLLIN:#06x} EPOLLPRI:{select.EPOLLPRI:#06x} conn[{detect_fileno}] len:{len(conn.notifies)} res:{res}")
         #                     while conn.notifies:
-        #                         print(conn.notifies)
         #                         notify = conn.notifies.pop(0)
         #                         self.__message_queue.put_nowait(notify.payload)
         #                 else:
-        #                     print(f"{detect_event:#06x} EPOLLOUT:{select.EPOLLOUT:#06x} EPOLLHUP:{select.EPOLLHUP:#06x} conn[{detect_fileno}]")
+        #                     print(f"else {detect_event:#06x} EPOLLOUT:{select.EPOLLOUT:#06x} EPOLLHUP:{select.EPOLLHUP:#06x} conn[{detect_fileno}]")
         #                     conn:connection = self.__connection_by_fileno[detect_fileno]
-        #                     print(conn)
+        #                     print(f"else {conn}")
         #     print("__listening exit ")
         # except Exception as e:
         #     print(f"{e}\n{traceback.format_exc()}")
@@ -443,14 +453,15 @@ class Connector():
         
     def listen_channel(self, channel_name:str):
         listen_channel_query = query.listen_channel(channel_name)
-        with self.get() as (cursor, _conn):
-            cursor.execute(listen_channel_query)
-            print(f"listen_channel conn[{_conn.fileno()}]")
-            self.__connection_by_fileno[_conn.fileno()] = _conn
-            # self.__channel_listen_epoll.register(_conn.fileno(), select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
+        cursor = self.__listen_connector.cursor()
+        cursor.execute(listen_channel_query)
+        cursor.close()
+        self.__connection_by_fileno[self.__listen_connector.fileno()] = self.__listen_connector
+        self.__channel_listen_epoll.register(self.__listen_connector, select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
 
     def unlisten_channel(self, channel_name):
         unlisten_channel_query = query.unlisten_channel(channel_name)
-        with self.get() as (cursor, _conn):
-            cursor.execute(unlisten_channel_query)
-            # self.__channel_listen_epoll.unregister(_conn)
+        cursor = self.__listen_connector.cursor()
+        cursor.execute(unlisten_channel_query)
+        cursor.close()
+        self.__channel_listen_epoll.unregister(self.__listen_connector)

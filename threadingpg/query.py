@@ -122,19 +122,29 @@ def get_type_name(type_code:int):
 
 def create_trigger_function1(function_name:str, 
                             channel_name:str):
-    return f"""
-            CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$
-            DECLARE
-                notification json;
-            BEGIN
-                notification = json_build_object(
-                    'type', TG_OP
-                );
-                PERFORM pg_notify('{channel_name}', notification::text);
-                RETURN NULL;
-            END;
-            $$ LANGUAGE plpgsql;
+    q1 = f"""
+    CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$
+    DECLARE
+        notification json;
+    BEGIN
+        notification = json_build_object(
+            'type', TG_OP
+        );
+        PERFORM pg_notify('{channel_name}', notification::text);
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
     """
+    q2 = f"""
+    CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$
+    BEGIN
+        RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+    """
+    return q2
+    
     
 def create_trigger_function(function_name:str, 
                             channel_name:str,
@@ -193,8 +203,8 @@ def create_trigger_function(function_name:str,
         
     if is_update or is_insert or is_delete:
     #     if is_raise_unknown_operation:
-        query_list.append(f"{in_space}ELSE")
-        query_list.append(f"""{in_space}{in_space}RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;""")
+        query_list.append(f"{in_space}{in_space}ELSE")
+        query_list.append(f"""{in_space}{in_space}{in_space}RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;""")
     #     else:
     #         query_list.append(f"{in_space}ELSE")
     #         if is_after_trigger:
@@ -217,10 +227,10 @@ def create_trigger_function(function_name:str,
         payload_variables.append(f"{in_space}{in_space}'table_name', TG_TABLE_NAME")
     if is_get_new:
         if is_update or is_insert:
-            payload_variables.append(f"{in_space}{in_space}'new_record', row_to_json(NEW)::text")
+            payload_variables.append(f"{in_space}{in_space}'new_record', row_to_json(NEW)")
     if is_get_old:
         if is_update or is_delete:
-            payload_variables.append(f"{in_space}{in_space}'old_record', row_to_json(OLD)::text")
+            payload_variables.append(f"{in_space}{in_space}'old_record', row_to_json(OLD)")
     
     join_payload_variables_str = ",\n"
     if is_inline:
@@ -296,7 +306,7 @@ def create_trigger(table_name:str,
         trigger_types.append("DELETE ")
             
     query += "OR ".join(trigger_types)
-    query += f"ON {table_name} FOR EACH ROW EXECUTE PROCEDURE {function_name}();"
+    query += f"ON {table_name} FOR EACH ROW EXECUTE FUNCTION {function_name}();"
     return query
     
 def drop_trigger(table_name:str, trigger_name:str):
