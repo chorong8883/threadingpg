@@ -174,7 +174,6 @@ class Connector():
         '''
         result = {}
         get_columns_query = query.get_columns(table.table_name, table_schema)
-        print(f"get_columns_query : {get_columns_query}")
         with self.get() as (cursor, _):
             cursor.execute(get_columns_query)
             type_code_by_data_name = {}
@@ -306,7 +305,6 @@ class Connector():
                                 function_name:str, 
                                 channel_name:str):
         create_trigger_function_query = query.create_trigger_function1(function_name, channel_name)
-        print(f"create_trigger_function_query :\n{create_trigger_function_query}")
         with self.get() as (cursor, _):
             cursor.execute(create_trigger_function_query)
             
@@ -341,7 +339,6 @@ class Connector():
                                                                     is_after_trigger,
                                                                     is_inline,
                                                                     in_space)
-        print(create_trigger_function_query)
         with self.get() as (cursor, _):
             cursor.execute(create_trigger_function_query)
             
@@ -374,7 +371,6 @@ class Connector():
                                                     is_insert,
                                                     is_update,
                                                     is_delete)
-        print(create_trigger_query)
         with self.get() as (cursor, _):
             cursor.execute(create_trigger_query)
             
@@ -389,6 +385,13 @@ class Connector():
             cursor.execute(drop_function_query)
     
     def start_channel_listener(self, message_queue:queue.Queue):
+        '''
+        run psycopg2.connect
+        run select.epoll for linux
+        Parameters
+        -
+        message_queue (queue.Queue):
+        '''
         self.__listen_connector = psycopg2.connect(self.dsn)
         self.__listen_connector.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         
@@ -420,35 +423,24 @@ class Connector():
                         for detect_fileno, detect_event in events:
                             if detect_fileno == self.__close_receiver.fileno():
                                 self.__is_listening.value = False
-                                print("exit epoll")
                                 break
                             elif detect_event & (select.EPOLLIN | select.EPOLLPRI):
                                 conn:connection = self.__connection_by_fileno[detect_fileno]
                                 res = conn.poll()
-                                print(f"{detect_event:#06x} EPOLLIN:{select.EPOLLIN:#06x} EPOLLPRI:{select.EPOLLPRI:#06x} conn[{detect_fileno}] len:{len(conn.notifies)} res:{res}")
                                 while conn.notifies:
                                     notify = conn.notifies.pop(0)
                                     self.__message_queue.put_nowait(notify.payload)
-                            else:
-                                print(f"else {detect_event:#06x} EPOLLOUT:{select.EPOLLOUT:#06x} EPOLLHUP:{select.EPOLLHUP:#06x} conn[{detect_fileno}]")
-                                conn:connection = self.__connection_by_fileno[detect_fileno]
-                                print(f"else {conn}")
-                print("__listening exit ")
+                            
+                
             except Exception as e:
-                print(f"{e}\n{traceback.format_exc()}")
+                pass
         else:
             try:
                 while self.__is_listening.value:
-                    print("__listening")
-                    
                     readables, writeables, exceptions = select.select([self.__listen_connector, self.__close_receiver],[],[])
-                    print(readables)
-                    print(writeables)
-                    print(exceptions)
                     for s in readables:
                         if s == self.__listen_connector:
                             if self.__listen_connector.closed:
-                                print("postgre Connection Closed.")
                                 break
                             self.__listen_connector.poll()
                             while self.__listen_connector.notifies:
@@ -457,9 +449,9 @@ class Connector():
                         elif s == self.__close_receiver:
                             self.__is_listening.value = False
                             break
-                print("End Notify Listener Thread.")
+                
             except Exception as e:
-                print(f"{e}\n{traceback.format_exc()}")
+                pass
             
         self.__message_queue.put_nowait(None)
         

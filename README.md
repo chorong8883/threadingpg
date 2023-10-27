@@ -81,3 +81,17 @@ condition_equal_0 = threadingpg.condition.Equal(mytable.index, 0)
 
 connector.update_row(mytable, myrow, condition_equal_0)
 ```
+
+# Simple Trigger
+```python
+mytable = MyTable()
+channel_name = "mych"
+trigger_name = "mytr"
+function_name = "myfn"
+connector.create_trigger_function(function_name, channel_name)
+connector.create_trigger(mytable, trigger_name, function_name)
+notify_queue = queue.Queue()
+# implement notify_queue.get()
+connector.start_channel_listener(notify_queue)
+connector.listen_channel(channel_name)
+```
