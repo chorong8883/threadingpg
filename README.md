@@ -1,7 +1,7 @@
 # threadingpg
 Control PostgreSQL using thread(s).
 
-# Initialize Connector  
+## Initialize Connector  
 ```python  
 import threadingpg
 connector = threadingpg.Connector(dbname='database_name', user='user_name', password='password', port=5432)
@@ -9,14 +9,14 @@ connector = threadingpg.Connector(dbname='database_name', user='user_name', pass
 connector.close()
 ```
 
-# Drop, Create Table
+## Drop, Create Table
 ```python  
 mytable = MyTable()
 connector.drop_table(mytable)
 connector.create_table(mytable)
 ```
 
-# Create Table and Row Class
+## Create Table and Row Class
 ### Table Class
 ```python  
 import threadingpg
@@ -43,7 +43,7 @@ class MyRow(threadingpg.data.Row):
         self.name = name
 ```
 
-# Insert Row
+## Insert
 ```python
 mytable = MyTable()
 myrow = MyRow("my_row")
@@ -52,7 +52,7 @@ connector.insert_row(mytable, myrow)
 connector.insert_dict(mytable, {"name":"my_row"})
 ```
 
-# Select Row
+## Select
 ```python
 mytable = MyTable()
 column_name_list, rows = connector.select(mytable)
@@ -62,7 +62,7 @@ for row in rows:
     print(f"output: {myrow.name}") # output: my_row
 ```
 
-# Select Where Conditions
+### Condition - Where 
 ```python
 mytable = MyTable()
 condition_equal_1 = threadingpg.condition.Equal(mytable.index, 1)
@@ -72,8 +72,17 @@ conditions = threadingpg.condition.Or(condition_equal_1, condition_equal_2, cond
 
 column_name_list, rows = connector.select(mytable, where=conditions)
 ```
+### Condition - OrderBy
+```python
+mytable = MyTable()
+orderby_index = threadingpg.condition.OrderBy(mytable.index)
+orderby_name = threadingpg.condition.OrderBy(mytable.name, True)
+orderby_conditions = threadingpg.condition.And(orderby_index, orderby_name)
 
-# Update Row
+column_name_list, rows = connector.select(mytable, order_by=orderby_conditions)
+```
+
+## Update
 ```python
 mytable = MyTable()
 myrow = MyRow("update_my_row")
@@ -82,7 +91,7 @@ condition_equal_0 = threadingpg.condition.Equal(mytable.index, 0)
 connector.update_row(mytable, myrow, condition_equal_0)
 ```
 
-# Simple Trigger
+## Simple Trigger
 ```python
 mytable = MyTable()
 channel_name = "mych"
