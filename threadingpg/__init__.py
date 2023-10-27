@@ -511,7 +511,7 @@ class TriggerListner(Connection):
         cursor.execute(listen_channel_query)
         print(cursor.description)
         if sys.platform == "linux":
-            self.__channel_listen_epoll.register(conn, select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
+            self.__channel_listen_epoll.register(self.get_connection(), select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
         elif sys.platform == "darwin":
             print("sys.platform == 'darwin'")
 
@@ -523,7 +523,7 @@ class TriggerListner(Connection):
         cursor.execute(unlisten_channel_query)
         print(cursor.description)
         if sys.platform == "linux":
-            self.__channel_listen_epoll.unregister(conn)
+            self.__channel_listen_epoll.unregister(self.get_connection())
         elif sys.platform == "darwin":
             print("sys.platform == 'darwin'")
         print("out unlisten_channel")
