@@ -100,42 +100,42 @@ def create_table(table_name:str, data_type_by_column_name_dict:dict, not_null_di
                     res = f"{res[:-2]}) "
             
         res = f"{res[:-1]},"
-    query = f"CREATE TABLE {table_name} ({res[:-1]})"
+    query = f"CREATE TABLE {table_name} ({res[:-1]});"
     return query
 
 def drop_table(table_name:str) -> str:
-    return f"DROP TABLE {table_name}"
+    return f"DROP TABLE {table_name};"
     
 def is_exist_table(table_name:str, table_schema:str) -> str:
     return f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '{table_schema}' AND table_name = '{table_name}');"
 
 def is_exist_column(table_name:str, column_name:str, table_schema:str) -> str:
-    return f"SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}' AND column_name = '{column_name}')"
+    return f"SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}' AND column_name = '{column_name}');"
 
 def get_columns(table_name:str, table_schema:str) -> str:
     return f"SELECT * FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}';"
 
 def get_column_names(table_name:str, table_schema:str) -> str:
-    return f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}'"
+    return f"SELECT column_name FROM information_schema.columns WHERE table_schema = '{table_schema}' AND table_name = '{table_name}';"
 
-def get_type_name(type_code:int):
-    return f"SELECT {type_code}::regtype::text"
+def get_type_name(type_code:int) -> str:
+    return f"SELECT {type_code}::regtype::text;"
 
-def create_trigger_function(function_name:str, 
-                            channel_name:str,
-                            is_replace:bool,
-                            is_get_operation:bool,
-                            is_get_timestamp:bool,
-                            is_get_tablename:bool,
-                            is_get_new:bool,
-                            is_get_old:bool,
-                            is_update:bool,
-                            is_insert:bool,
-                            is_delete:bool,
-                            is_raise_unknown_operation:bool,
-                            is_after_trigger:bool,
-                            is_inline:bool,
-                            in_space:str = '    '):
+def create_function(function_name:str, 
+                    channel_name:str,
+                    is_replace:bool,
+                    is_get_operation:bool,
+                    is_get_timestamp:bool,
+                    is_get_tablename:bool,
+                    is_get_new:bool,
+                    is_get_old:bool,
+                    is_update:bool,
+                    is_insert:bool,
+                    is_delete:bool,
+                    is_raise_unknown_operation:bool,
+                    is_after_trigger:bool,
+                    is_inline:bool,
+                    in_space:str = '    ') -> str:
     
     if not (function_name and channel_name):
             raise ValueError("function_name channel_name")
@@ -177,18 +177,8 @@ def create_trigger_function(function_name:str,
         query_list.append(f"{in_space}{in_space}{in_space}rec := OLD;")
         
     if is_update or is_insert or is_delete:
-    #     if is_raise_unknown_operation:
         query_list.append(f"{in_space}{in_space}ELSE")
         query_list.append(f"""{in_space}{in_space}{in_space}RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;""")
-    #     else:
-    #         query_list.append(f"{in_space}ELSE")
-    #         if is_after_trigger:
-    #             query_list.append(f"{in_space}{in_space}RETURN NULL;")
-    #         elif is_update or is_insert:
-    #             query_list.append(f"{in_space}{in_space}RETURN newrec;")
-    #         elif is_update or is_delete:
-    #             query_list.append(f"{in_space}{in_space}RETURN oldrec;")
-                    
         query_list.append(f"{in_space}END CASE;")
     
     query_list.append(f"{in_space}payload := json_build_object(")
@@ -215,11 +205,7 @@ def create_trigger_function(function_name:str,
     query_list.append(f"{payload_variables_str}")
     query_list.append(f"{in_space});")
     query_list.append(f"{in_space}PERFORM pg_notify('{channel_name}', payload::text);")
-    
-    # if is_after_trigger:
-        # query_list.append(f"{in_space}RETURN NULL;")
     query_list.append(f"{in_space}RETURN rec;")
-        
     query_list.append("END;")
     query_list.append("$$ LANGUAGE plpgsql;")
     join_str = "\n"
@@ -228,10 +214,10 @@ def create_trigger_function(function_name:str,
     return join_str.join(query_list)
 
 
-def drop_function(function_name:str):
+def drop_function(function_name:str) -> str:
     return f'DROP FUNCTION {function_name}();'
 
-def select_function(function_name:str, is_definition:bool):
+def select_function(function_name:str, is_definition:bool) -> str:
     query = f"SELECT "
     if is_definition:
         query += "routine_definition "
@@ -248,7 +234,7 @@ def create_trigger(table_name:str,
                    is_after:bool,
                    is_insert:bool,
                    is_update:bool,
-                   is_delete:bool):
+                   is_delete:bool) -> str:
     '''
     Parameters
     -
@@ -285,17 +271,17 @@ def create_trigger(table_name:str,
     query += f"ON {table_name} FOR EACH ROW EXECUTE FUNCTION {function_name}();"
     return query
     
-def drop_trigger(table_name:str, trigger_name:str):
+def drop_trigger(table_name:str, trigger_name:str) -> str:
     return f"DROP TRIGGER {trigger_name} on {table_name};"
 
-def select_trigger():
+def select_trigger() -> str:
     return f"SELECT * FROM pg_trigger;"
 
         
-def listen_channel(channel_name:str):
+def listen_channel(channel_name:str) -> str:
     return f"LISTEN {channel_name};"
 
-def unlisten_channel(channel_name:str):
+def unlisten_channel(channel_name:str) -> str:
     return f"UNLISTEN {channel_name};"
 
 

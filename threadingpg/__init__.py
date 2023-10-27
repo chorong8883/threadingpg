@@ -17,7 +17,56 @@ from threadingpg import query
 from threadingpg import condition
 from threadingpg import data
 
-class Connector():
+class Connection:
+    def __init__(self) -> None:
+        pass
+    
+    def connect(self, dbname:str, user:str, password:str, port:int, host:str="localhost" ):
+        '''
+        Start Connection. (psycopg2.connect())\n
+        Parameters
+        -
+        dbname(str): postgresql database name.\n
+        user(str): user id.\n
+        password(str): password\n
+        port(int): port number\n
+        host(str): host address. default "localhost"\n
+        '''
+        self.dsn = psycopg2.extensions.make_dsn(host=host, dbname=dbname, user=user, password=password, port=port)
+        self.__connection:psycopg2.extensions.connection = psycopg2.connect(self.dsn)
+        self.__connection.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+    
+    def close(self):
+        self.__connection.close()
+        
+    def cancel(self):
+        self.__connection.cancel()
+    
+    def reset(self):
+        self.__connection.reset()
+        
+    def get_connection(self) -> psycopg2.extensions.connection:
+        return self.__connection
+    
+    @contextmanager
+    def get(self):
+        '''
+        base cursor.close()\n
+        Usage
+        -
+        with get() as (cursor, conn):
+            cursor.execute(query)
+            result = cursor.fetchone()
+        
+        '''
+        cursor = self.__connection.cursor()
+        try:
+            yield cursor, self.__connection
+        finally:
+            cursor.close()
+    
+
+class ConnectionPool():
     def __init__(self, dbname:str, user:str, password:str, port:int, host:str="localhost") -> None:
         '''
         Start Connection Pool.(set ThreadedConnectionPool())\n
@@ -31,16 +80,11 @@ class Connector():
         '''
         self.dsn = psycopg2.extensions.make_dsn(host=host, dbname=dbname, user=user, password=password, port=port)
         self.__pool = ThreadedConnectionPool(1, 5, self.dsn)
-        self.__is_listening = multiprocessing.Value(ctypes.c_bool, True)
         
-    
     def close(self):
         '''
         connection_pool.closeall()
         '''
-        if self.__is_listening.value:
-            self.stop_channel_listener()
-            
         if self.__pool is not None and self.__pool.closed is False:
             self.__pool.closeall()
 
@@ -48,7 +92,7 @@ class Connector():
     def get(self):
         '''
         Auto .getconn(), .putconn() and cursor.close()\n
-        Usage\n
+        Usage
         -
         with get() as (cursor, conn):
             cursor.execute(query)
@@ -76,6 +120,7 @@ class Connector():
             for r in rs:
                 typedict[str(r[1])] = r[0]
         return typedict
+    
     def get_datatype_by_code(self):
         typedict = {}
         with self.get() as (_cursor, _):
@@ -291,31 +336,45 @@ class Connector():
         delete_query = query.delete(table.table_name, where.parse())
         with self.get() as (cursor, _):
             cursor.execute(delete_query)
+
+
+
+
+
+
+
         
-    ################################################################################################################
-    ################################################################################################################
-    ################################################################################################################
-    ################################################################################################################
-    ################################################################################################################
-    ################################################################################################################
-    # Function
-    def create_trigger_function(self,
-                                function_name:str, 
-                                channel_name:str,
-                                is_replace:bool = True,
-                                is_get_operation:bool = True,
-                                is_get_timestamp:bool = True,
-                                is_get_tablename:bool = True,
-                                is_get_new:bool = True,
-                                is_get_old:bool = True,
-                                is_update:bool = True,
-                                is_insert:bool = True,
-                                is_delete:bool = True,
-                                is_raise_unknown_operation:bool = True,
-                                is_after_trigger:bool = True,
-                                is_inline:bool = False,
-                                in_space:str = '    '):
-        create_trigger_function_query = query.create_trigger_function(function_name, 
+################################################################################################################
+################################################################################################################
+################################################################################################################
+################################################################################################################
+################################################################################################################
+################################################################################################################
+# Trigger
+    
+class TriggerListner(Connection):
+    def __init__(self) -> None:
+        super().__init__()
+        self.__is_listening = multiprocessing.Value(ctypes.c_bool, True)
+        self.notify_queue = queue.Queue()
+   
+    def create_function(self,
+                        function_name:str, 
+                        channel_name:str,
+                        is_replace:bool = True,
+                        is_get_operation:bool = True,
+                        is_get_timestamp:bool = True,
+                        is_get_tablename:bool = True,
+                        is_get_new:bool = True,
+                        is_get_old:bool = True,
+                        is_update:bool = True,
+                        is_insert:bool = True,
+                        is_delete:bool = True,
+                        is_raise_unknown_operation:bool = True,
+                        is_after_trigger:bool = True,
+                        is_inline:bool = False,
+                        in_space:str = '    '):
+        create_trigger_function_query = query.create_function(function_name, 
                                                                     channel_name,
                                                                     is_replace,
                                                                     is_get_operation,
@@ -375,90 +434,96 @@ class Connector():
         with self.get() as (cursor, _):
             cursor.execute(drop_function_query)
     
-    def start_channel_listener(self, message_queue:queue.Queue):
-        '''
-        run psycopg2.connect
-        run select.epoll for linux
-        Parameters
-        -
-        message_queue (queue.Queue):
-        '''
-        self.__listen_connector = psycopg2.connect(self.dsn)
-        self.__listen_connector.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-        
+    def start(self):
         self.__is_listening.value = True
-        self.__connection_by_fileno = collections.defaultdict(psycopg2.extensions.connection)
         self.__close_sender, self.__close_receiver = socket.socketpair()
         
         if sys.platform == "linux":
             self.__channel_listen_epoll = select.epoll()
-            self.__channel_listen_epoll.register(self.__close_receiver, select.EPOLLET | select.EPOLLIN | select.EPOLLHUP | select.EPOLLRDHUP)        
+            self.__channel_listen_epoll.register(self.__close_receiver, select.EPOLLET | select.EPOLLIN | select.EPOLLHUP | select.EPOLLRDHUP)
+        elif sys.platform == "darwin":
+            print("sys.platform == 'darwin'")
             
-        self.__message_queue = message_queue
-        
-        self.__listening_thread = threading.Thread(target=self.__listening)
+        self.__listening_thread = threading.Thread(target=self.__listening, args=(self.__close_receiver, ))
         self.__listening_thread.start()
         
     
-    def stop_channel_listener(self):
+    def stop(self):
+        print("stop")
         self.__is_listening.value = False
         self.__close_sender.shutdown(socket.SHUT_RDWR)
         self.__listening_thread.join()
+        self.close()
         
-    def __listening(self):
+    def __listening(self, close_receiver:socket.socket):
+        print("start __listening")
         if sys.platform == "linux":
             try:
                 while self.__is_listening.value:
                     events = self.__channel_listen_epoll.poll()
                     if self.__is_listening.value:
                         for detect_fileno, detect_event in events:
-                            if detect_fileno == self.__close_receiver.fileno():
+                            if detect_fileno == close_receiver.fileno():
                                 self.__is_listening.value = False
                                 break
-                            elif detect_event & (select.EPOLLIN | select.EPOLLPRI):
-                                conn:psycopg2.extensions.connection = self.__connection_by_fileno[detect_fileno]
-                                res = conn.poll()
-                                while conn.notifies:
-                                    notify = conn.notifies.pop(0)
-                                    self.__message_queue.put_nowait(notify.payload)
+                            elif detect_fileno == self.get_connection().fileno():
+                                if detect_event & (select.EPOLLIN | select.EPOLLPRI):
+                                    self.get_connection().poll()
+                                    while self.get_connection().notifies:
+                                        notify = self.get_connection().notifies.pop(0)
+                                        self.notify_queue.put_nowait(notify.payload)
                             
                 
             except Exception as e:
+                print(e, traceback.format_exc())
                 pass
         else:
             try:
                 while self.__is_listening.value:
-                    readables, writeables, exceptions = select.select([self.__listen_connector, self.__close_receiver],[],[])
+                    readables, writeables, exceptions = select.select([self.get_connection(), close_receiver],[],[])
                     for s in readables:
-                        if s == self.__listen_connector:
-                            if self.__listen_connector.closed:
+                        if s == self.get_connection():
+                            if self.get_connection().closed:
+                                self.__is_listening.value = False
                                 break
-                            self.__listen_connector.poll()
-                            while self.__listen_connector.notifies:
-                                notify = self.__listen_connector.notifies.pop(0)
-                                self.__message_queue.put_nowait(notify.payload)
-                        elif s == self.__close_receiver:
+                            self.get_connection().poll()
+                            while self.get_connection().notifies:
+                                notify = self.get_connection().notifies.pop(0)
+                                self.notify_queue.put_nowait(notify.payload)
+                        elif s == close_receiver:
+                            print("select close_receiver")
                             self.__is_listening.value = False
                             break
+                    for exce in exceptions:
+                        print(exce)
                 
             except Exception as e:
+                print(e, traceback.format_exc())
                 pass
             
-        self.__message_queue.put_nowait(None)
+        self.notify_queue.put_nowait(None)
         
     def listen_channel(self, channel_name:str):
         listen_channel_query = query.listen_channel(channel_name)
-        cursor = self.__listen_connector.cursor()
+        print(listen_channel_query)
+        # with self.get() as (cursor, conn):
+        cursor = self.get_connection().cursor()
         cursor.execute(listen_channel_query)
-        cursor.close()
-        self.__connection_by_fileno[self.__listen_connector.fileno()] = self.__listen_connector
+        print(cursor.description)
         if sys.platform == "linux":
-            self.__channel_listen_epoll.register(self.__listen_connector, select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
+            self.__channel_listen_epoll.register(conn, select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
+        elif sys.platform == "darwin":
+            print("sys.platform == 'darwin'")
 
     def unlisten_channel(self, channel_name):
         unlisten_channel_query = query.unlisten_channel(channel_name)
-        cursor = self.__listen_connector.cursor()
+        print(unlisten_channel_query)
+        # with self.get() as (cursor, conn):
+        cursor = self.get_connection().cursor()
         cursor.execute(unlisten_channel_query)
-        cursor.close()
+        print(cursor.description)
         if sys.platform == "linux":
-            self.__channel_listen_epoll.unregister(self.__listen_connector)
+            self.__channel_listen_epoll.unregister(conn)
+        elif sys.platform == "darwin":
+            print("sys.platform == 'darwin'")
+        print("out unlisten_channel")
