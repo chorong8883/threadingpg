@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "threadingpg"
-version = "0.0.3"
+version = "0.0.4"
 authors = [
   { name="Chor", email="chorong8883@gmail.com" },
 ]
@@ -12,7 +12,7 @@ description = "Simple control 'psycopg2'(PostgreSQL)."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "psycopg2",
+  "psycopg2>=2.9.4",
 ]
 classifiers = [
     "Programming Language :: Python :: 3.10",
@@ -22,6 +22,5 @@ classifiers = [
 ]
 keywords = ["postgresql", "postgres", "thread", "thread postgresql", "threading postgresql"]
 
-
 [project.urls]
-"Homepage" = "https://github.com/chorong8883/threadingwebdriver"
+"Homepage" = "https://github.com/chorong8883/threadingpg"

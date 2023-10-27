@@ -7,26 +7,15 @@ import ctypes
 import collections
 import traceback
 import sys
+
 import psycopg2
 import psycopg2.extensions
 from psycopg2.pool import ThreadedConnectionPool
-# from psycopg2.extensions import cursor
-from psycopg2.extensions import connection
-# from psycopg2.extensions import make_dsn
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from contextlib import contextmanager
+
 from threadingpg import query
 from threadingpg import condition
 from threadingpg import data
-
-# class NotifyType(enum.Enum):
-#     Default = 0
-#     TableName = 1
-#     RowData = 2
-    
-# class Notify:
-#     def __init__(self, function_name:str, channel_name:str, table_name:str, trigger_name:str) -> None:
-#         pass
 
 class Connector():
     def __init__(self, dbname:str, user:str, password:str, port:int, host:str="localhost") -> None:
@@ -293,6 +282,15 @@ class Connector():
         update_query = query.update(table.table_name, value_by_column_name, where.parse())
         with self.get() as (cursor, _):
             cursor.execute(update_query)
+    
+    def delete_row(self, table: data.Table, where:condition.Condition):
+        '''
+        table (data.Table)
+        where (condition.Condition)
+        '''
+        delete_query = query.delete(table.table_name, where.parse())
+        with self.get() as (cursor, _):
+            cursor.execute(delete_query)
         
     ################################################################################################################
     ################################################################################################################
@@ -301,13 +299,6 @@ class Connector():
     ################################################################################################################
     ################################################################################################################
     # Function
-    def create_trigger_function1(self,
-                                function_name:str, 
-                                channel_name:str):
-        create_trigger_function_query = query.create_trigger_function1(function_name, channel_name)
-        with self.get() as (cursor, _):
-            cursor.execute(create_trigger_function_query)
-            
     def create_trigger_function(self,
                                 function_name:str, 
                                 channel_name:str,
@@ -322,7 +313,7 @@ class Connector():
                                 is_delete:bool = True,
                                 is_raise_unknown_operation:bool = True,
                                 is_after_trigger:bool = True,
-                                is_inline:bool = True,
+                                is_inline:bool = False,
                                 in_space:str = '    '):
         create_trigger_function_query = query.create_trigger_function(function_name, 
                                                                     channel_name,
@@ -347,7 +338,7 @@ class Connector():
                        trigger_name:str, 
                        function_name:str,
                        is_replace:bool = False,
-                       is_after:bool = False,
+                       is_after:bool = True,
                        is_insert:bool = True,
                        is_update:bool = True,
                        is_delete:bool = True):
@@ -393,10 +384,10 @@ class Connector():
         message_queue (queue.Queue):
         '''
         self.__listen_connector = psycopg2.connect(self.dsn)
-        self.__listen_connector.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        self.__listen_connector.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         
         self.__is_listening.value = True
-        self.__connection_by_fileno = collections.defaultdict(connection)
+        self.__connection_by_fileno = collections.defaultdict(psycopg2.extensions.connection)
         self.__close_sender, self.__close_receiver = socket.socketpair()
         
         if sys.platform == "linux":
@@ -425,7 +416,7 @@ class Connector():
                                 self.__is_listening.value = False
                                 break
                             elif detect_event & (select.EPOLLIN | select.EPOLLPRI):
-                                conn:connection = self.__connection_by_fileno[detect_fileno]
+                                conn:psycopg2.extensions.connection = self.__connection_by_fileno[detect_fileno]
                                 res = conn.poll()
                                 while conn.notifies:
                                     notify = conn.notifies.pop(0)

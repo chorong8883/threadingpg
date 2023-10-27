@@ -69,7 +69,6 @@ condition_equal_1 = threadingpg.condition.Equal(mytable.index, 1)
 condition_equal_2 = threadingpg.condition.Equal(mytable.index, 2)
 condition_equal_3 = threadingpg.condition.Equal(mytable.index, 3)
 conditions = threadingpg.condition.Or(condition_equal_1, condition_equal_2, condition_equal_3)
-
 column_name_list, rows = connector.select(mytable, where=conditions)
 ```
 ### Condition - OrderBy
@@ -78,7 +77,6 @@ mytable = MyTable()
 orderby_index = threadingpg.condition.OrderBy(mytable.index)
 orderby_name = threadingpg.condition.OrderBy(mytable.name, True)
 orderby_conditions = threadingpg.condition.And(orderby_index, orderby_name)
-
 column_name_list, rows = connector.select(mytable, order_by=orderby_conditions)
 ```
 
@@ -87,8 +85,14 @@ column_name_list, rows = connector.select(mytable, order_by=orderby_conditions)
 mytable = MyTable()
 myrow = MyRow("update_my_row")
 condition_equal_0 = threadingpg.condition.Equal(mytable.index, 0)
-
 connector.update_row(mytable, myrow, condition_equal_0)
+```
+
+## Delete
+```python
+mytable = MyTable()
+delete_condition = threadingpg.condition.Equal(mytable.index, 5)
+connector.delete_row(mytable, delete_condition)
 ```
 
 ## Simple Trigger
@@ -100,7 +104,7 @@ function_name = "myfn"
 connector.create_trigger_function(function_name, channel_name)
 connector.create_trigger(mytable, trigger_name, function_name)
 notify_queue = queue.Queue()
-# implement notify_queue.get()
+# implement 'notify = notify_queue.get()'
 connector.start_channel_listener(notify_queue)
 connector.listen_channel(channel_name)
 ```

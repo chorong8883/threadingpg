@@ -1,4 +1,3 @@
-import enum
 def select(table_name:str, condition_query:str=None, order_by_query:str=None, limit_count:int=None) -> str:
     query = f"SELECT * FROM {table_name}"
     
@@ -39,6 +38,8 @@ def update(table_name:str, variables_dict:dict, condition_query:str):
                 update_query += f"{column_name}={convert_value_to_query(variables_dict[column_name])},"
     return f"UPDATE {table_name} SET {update_query[:-1]} WHERE {condition_query};"
 
+def delete(table_name:str, condition_query:str):
+    return f"DELETE FROM {table_name} WHERE {condition_query};"
 
 def convert_value_to_query(value, is_in_list = False) -> str:
     value_query = ''
@@ -120,32 +121,6 @@ def get_column_names(table_name:str, table_schema:str) -> str:
 def get_type_name(type_code:int):
     return f"SELECT {type_code}::regtype::text"
 
-def create_trigger_function1(function_name:str, 
-                            channel_name:str):
-    q1 = f"""
-    CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$
-    DECLARE
-        notification json;
-    BEGIN
-        notification = json_build_object(
-            'type', TG_OP
-        );
-        PERFORM pg_notify('{channel_name}', notification::text);
-        RETURN NULL;
-    END;
-    $$ LANGUAGE plpgsql;
-    """
-    q2 = f"""
-    CREATE OR REPLACE FUNCTION {function_name}() RETURNS trigger AS $$
-    BEGIN
-        RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    """
-    return q2
-    
-    
 def create_trigger_function(function_name:str, 
                             channel_name:str,
                             is_replace:bool,
@@ -237,7 +212,8 @@ def create_trigger_function(function_name:str,
         join_payload_variables_str = ", "
     payload_variables_str = join_payload_variables_str.join(payload_variables)
     
-    query_list.append(f"{payload_variables_str}\n{in_space});")
+    query_list.append(f"{payload_variables_str}")
+    query_list.append(f"{in_space});")
     query_list.append(f"{in_space}PERFORM pg_notify('{channel_name}', payload::text);")
     
     # if is_after_trigger:
