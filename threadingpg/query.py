@@ -268,7 +268,7 @@ def create_trigger(table_name:str,
         trigger_types.append("DELETE ")
             
     query += "OR ".join(trigger_types)
-    query += f"ON {table_name} FOR EACH ROW EXECUTE FUNCTION {function_name}();"
+    query += f"ON {table_name} FOR EACH ROW EXECUTE PROCEDURE {function_name}();"
     return query
     
 def drop_trigger(table_name:str, trigger_name:str) -> str:

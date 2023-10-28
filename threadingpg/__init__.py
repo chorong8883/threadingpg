@@ -389,6 +389,7 @@ class TriggerListner(Connection):
                                                                     is_after_trigger,
                                                                     is_inline,
                                                                     in_space)
+        print(create_trigger_function_query)
         with self.get() as (cursor, _):
             cursor.execute(create_trigger_function_query)
             
@@ -421,6 +422,7 @@ class TriggerListner(Connection):
                                                     is_insert,
                                                     is_update,
                                                     is_delete)
+        print(create_trigger_query)
         with self.get() as (cursor, _):
             cursor.execute(create_trigger_query)
             
@@ -434,7 +436,7 @@ class TriggerListner(Connection):
         with self.get() as (cursor, _):
             cursor.execute(drop_function_query)
     
-    def start(self):
+    def start_listening(self):
         self.__is_listening.value = True
         self.__close_sender, self.__close_receiver = socket.socketpair()
         
@@ -448,7 +450,7 @@ class TriggerListner(Connection):
         self.__listening_thread.start()
         
     
-    def stop(self):
+    def stop_listening(self):
         print("stop")
         self.__is_listening.value = False
         self.__close_sender.shutdown(socket.SHUT_RDWR)
@@ -480,16 +482,21 @@ class TriggerListner(Connection):
         else:
             try:
                 while self.__is_listening.value:
+                    print(f"select.select {self.get_connection().fileno()}, {close_receiver.fileno()}")
                     readables, writeables, exceptions = select.select([self.get_connection(), close_receiver],[],[])
                     for s in readables:
                         if s == self.get_connection():
                             if self.get_connection().closed:
                                 self.__is_listening.value = False
+                                print("self.get_connection().closed")
                                 break
+                            print("self.get_connection().poll()")
                             self.get_connection().poll()
                             while self.get_connection().notifies:
                                 notify = self.get_connection().notifies.pop(0)
+                                print(f"{notify.pid} {notify.channel}")
                                 self.notify_queue.put_nowait(notify.payload)
+                                
                         elif s == close_receiver:
                             print("select close_receiver")
                             self.__is_listening.value = False
@@ -509,11 +516,12 @@ class TriggerListner(Connection):
         # with self.get() as (cursor, conn):
         cursor = self.get_connection().cursor()
         cursor.execute(listen_channel_query)
-        print(cursor.description)
+        
         if sys.platform == "linux":
             self.__channel_listen_epoll.register(self.get_connection(), select.EPOLLET | select.EPOLLIN | select.EPOLLPRI | select.EPOLLHUP | select.EPOLLRDHUP)
         elif sys.platform == "darwin":
             print("sys.platform == 'darwin'")
+        print("finish listen_channel")
 
     def unlisten_channel(self, channel_name):
         unlisten_channel_query = query.unlisten_channel(channel_name)
@@ -521,9 +529,9 @@ class TriggerListner(Connection):
         # with self.get() as (cursor, conn):
         cursor = self.get_connection().cursor()
         cursor.execute(unlisten_channel_query)
-        print(cursor.description)
+        
         if sys.platform == "linux":
             self.__channel_listen_epoll.unregister(self.get_connection())
         elif sys.platform == "darwin":
             print("sys.platform == 'darwin'")
-        print("out unlisten_channel")
+        print("finish unlisten_channel")
