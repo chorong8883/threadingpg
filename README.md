@@ -96,15 +96,23 @@ connector.delete_row(mytable, delete_condition)
 ```
 
 ## Simple Trigger
+Need delay each function.
 ```python
 mytable = MyTable()
 channel_name = "mych"
 trigger_name = "mytr"
 function_name = "myfn"
-connector.create_trigger_function(function_name, channel_name)
-connector.create_trigger(mytable, trigger_name, function_name)
-notify_queue = queue.Queue()
-# implement 'notify = notify_queue.get()'
-connector.start_channel_listener(notify_queue)
-connector.listen_channel(channel_name)
+
+listner = threadingpg.TriggerListner()
+# implement 'notify = listner.notify_queue.get()'
+
+listner.connect(dbname=dbname, user=user, password=password, port=5432)
+listner.create_function(function_name, channel_name)
+listner.create_trigger(mytable, trigger_name, function_name)
+
+listner.start_listening()
+listner.listen_channel(channel_name)
+# ...
+listner.unlisten_channel(channel_name)
+listner.stop_listening()
 ```
